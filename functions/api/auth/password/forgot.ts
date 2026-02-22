@@ -28,7 +28,7 @@ export const onRequestPost: PagesFunction = async (context) => {
   const normalizeHeaderValue = (value: unknown) =>
     String(value ?? "")
       .replace(/[\r\n]+/g, " ")
-      .slice(0, 120);
+      .slice(0, 140);
 
   const setPhase = (nextPhase: string) => {
     phase = nextPhase;
@@ -39,7 +39,7 @@ export const onRequestPost: PagesFunction = async (context) => {
     if (!env.DB) throw new Error("Missing env.DB binding");
     const db = env.DB as D1Database;
 
-    setPhase("parse_body");
+    setPhase("parse");
     let body: any;
     try {
       body = await request.json();
@@ -59,17 +59,21 @@ export const onRequestPost: PagesFunction = async (context) => {
     const usersCount = Number(cRow?.c ?? 0);
     setHeader("X-BB-UsersCount", String(usersCount));
 
-    if (!emailNorm || !emailNorm.includes("@")) return okResponse(responseHeaders);
+    if (!emailNorm || !emailNorm.includes("@")) {
+      setPhase("ok");
+      return okResponse(responseHeaders);
+    }
 
     const now = new Date();
     const throttledIp = await isThrottled(db, "ip", ip || "unknown", now, THROTTLE_LIMIT_PER_IP);
     const throttledEmail = await isThrottled(db, "email", emailNorm, now, THROTTLE_LIMIT_PER_EMAIL);
     if (throttledIp || throttledEmail) {
       console.log("[auth/password/forgot] throttled request", { ipPresent: Boolean(ip), emailDomain: emailNorm.split("@")[1] || "" });
+      setPhase("ok");
       return okResponse(responseHeaders);
     }
 
-    setPhase("lookup_user");
+    setPhase("lookup");
     let u: { id: string; email: string } | null = null;
     try {
       const result = await env.DB
@@ -89,7 +93,10 @@ export const onRequestPost: PagesFunction = async (context) => {
     console.log("reset: userFound", userFound);
 
     setHeader("X-BB-Reset-UserFound", String(userFound));
-    if (!userFound) return okResponse(responseHeaders);
+    if (!userFound) {
+      setPhase("ok");
+      return okResponse(responseHeaders);
+    }
 
     const token = randomToken(32);
     const tokenHash = await sha256Hex(token);
@@ -97,10 +104,8 @@ export const onRequestPost: PagesFunction = async (context) => {
     const expiresAt = new Date(now.getTime() + RESET_WINDOW_MINUTES * 60 * 1000).toISOString();
 
     let inserted = false;
-    setPhase("check_reset_table");
-    await db.prepare("SELECT 1 FROM password_reset_tokens LIMIT 1").first();
-
     setPhase("insert_token");
+    await db.prepare("SELECT 1 FROM password_reset_tokens LIMIT 1").first();
     try {
       await db
         .prepare(
@@ -135,10 +140,11 @@ export const onRequestPost: PagesFunction = async (context) => {
       console.log("reset: emailSent", false);
     }
 
+    setPhase("ok");
     return okResponse(responseHeaders);
   } catch (err) {
     errMsg = normalizeHeaderValue((err as any)?.message || err);
-    console.error("password/forgot failed at", phase, err);
+    console.error("forgot failed", { phase, err });
     setHeader("X-BB-Reset-Phase", normalizeHeaderValue(phase));
     setHeader("X-BB-Reset-Err", "db_error");
     setHeader("X-BB-Reset-ErrMsg", errMsg);
