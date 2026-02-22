@@ -29,10 +29,11 @@ export const onRequestPost: PagesFunction = async (context) => {
     if (Number(user.is_active) === 0) return json({ ok: false, error: "account_deactivated" }, 403);
 
     const sessionId = uuid();
+    const createdAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     await db.prepare(
-      `INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)`
-    ).bind(sessionId, user.id, expiresAt).run();
+      `INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)`
+    ).bind(sessionId, user.id, expiresAt, createdAt).run();
 
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,

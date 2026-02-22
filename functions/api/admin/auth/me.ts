@@ -1,8 +1,11 @@
 import { requireAdminSession } from "../_helpers";
-import { adminAuthJson, getErrorMessage } from "./_helpers";
+import { adminAuthJson, ensureAdminSessionSchema, getErrorMessage } from "./_helpers";
 
 export const onRequestGet: PagesFunction = async ({ request, env }) => {
   try {
+    const db = env.DB as D1Database;
+    await ensureAdminSessionSchema(db);
+
     const admin = await requireAdminSession(request, env);
     if (!admin) {
       return adminAuthJson({ ok: false, error: "not_authenticated" }, 401, "require_session", "not_authenticated", "No active admin session");

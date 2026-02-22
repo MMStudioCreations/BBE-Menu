@@ -41,10 +41,11 @@ export const onRequestPost: PagesFunction = async (context) => {
     ).bind(userId, "unverified", createdAt).run();
 
     const sessionId = uuid();
+    const sessionCreatedAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     await db.prepare(
-      `INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)`
-    ).bind(sessionId, userId, expiresAt).run();
+      `INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)`
+    ).bind(sessionId, userId, expiresAt, sessionCreatedAt).run();
 
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,

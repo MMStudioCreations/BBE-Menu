@@ -1,9 +1,10 @@
 import { setCookie, uuid, verifyPassword } from "../../auth/_utils";
-import { adminAuthJson, getErrorMessage } from "./_helpers";
+import { adminAuthJson, ensureAdminSessionSchema, getErrorMessage } from "./_helpers";
 
 export const onRequestPost: PagesFunction = async ({ request, env }) => {
   try {
     const db = env.DB as D1Database;
+    await ensureAdminSessionSchema(db);
     const body = await request.json<any>().catch(() => null);
     const email = String(body?.email || "").trim().toLowerCase();
     const password = String(body?.password || "");
@@ -29,10 +30,12 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
     const sessionId = uuid();
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 7 * 86400000).toISOString();
+    const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || null;
+    const userAgent = request.headers.get("user-agent") || null;
 
     await db
-      .prepare("INSERT INTO sessions (id, user_id, admin_user_id, session_type, expires_at, created_at) VALUES (?, NULL, ?, 'admin', ?, ?)")
-      .bind(sessionId, admin.id, expiresAt, now)
+      .prepare("INSERT INTO sessions (id, user_id, admin_user_id, session_type, expires_at, created_at, ip, user_agent) VALUES (?, NULL, ?, 'admin', ?, ?, ?, ?)")
+      .bind(sessionId, admin.id, expiresAt, now, ip, userAgent)
       .run();
 
     await db.prepare("UPDATE admin_users SET last_login_at = ? WHERE id = ?").bind(now, admin.id).run();

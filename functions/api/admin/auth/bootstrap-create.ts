@@ -1,9 +1,10 @@
 import { hashPassword, uuid } from "../../auth/_utils";
-import { adminAuthJson, getErrorMessage } from "./_helpers";
+import { adminAuthJson, ensureAdminSessionSchema, getErrorMessage } from "./_helpers";
 
 export const onRequestPost: PagesFunction = async ({ request, env }) => {
   try {
     const db = env.DB as D1Database;
+    await ensureAdminSessionSchema(db);
     const body = await request.json<any>().catch(() => null);
     const secret = String(body?.secret || "").trim();
     const email = String(body?.email || "").trim().toLowerCase();
@@ -38,6 +39,7 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
 export const onRequestGet: PagesFunction = async ({ env }) => {
   try {
     const db = env.DB as D1Database;
+    await ensureAdminSessionSchema(db);
     const row = await db.prepare("SELECT COUNT(*) AS count FROM admin_users").first<any>();
     return adminAuthJson({ ok: true, needs_bootstrap: Number(row?.count || 0) === 0 }, 200, "done", "none", "");
   } catch (err) {

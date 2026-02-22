@@ -21,3 +21,30 @@ export function getErrorMessage(err: unknown) {
   if (err instanceof Error) return err.message;
   return String(err);
 }
+
+type SessionColumn = { name?: string | null };
+
+export async function ensureAdminSessionSchema(db: D1Database) {
+  const pragmaRows = await db.prepare("PRAGMA table_info(sessions)").all<SessionColumn>();
+  const columns = new Set((pragmaRows.results || []).map((row) => String(row.name || "")).filter(Boolean));
+
+  const missingColumns: Array<{ name: string; ddl: string }> = [];
+  if (!columns.has("created_at")) missingColumns.push({ name: "created_at", ddl: "ALTER TABLE sessions ADD COLUMN created_at TEXT" });
+  if (!columns.has("ip")) missingColumns.push({ name: "ip", ddl: "ALTER TABLE sessions ADD COLUMN ip TEXT" });
+  if (!columns.has("user_agent")) missingColumns.push({ name: "user_agent", ddl: "ALTER TABLE sessions ADD COLUMN user_agent TEXT" });
+  if (!columns.has("admin_user_id")) missingColumns.push({ name: "admin_user_id", ddl: "ALTER TABLE sessions ADD COLUMN admin_user_id TEXT" });
+  if (!columns.has("session_type")) {
+    missingColumns.push({ name: "session_type", ddl: "ALTER TABLE sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'user'" });
+  }
+
+  for (const column of missingColumns) {
+    try {
+      await db.prepare(column.ddl).run();
+    } catch (err) {
+      const msg = getErrorMessage(err).toLowerCase();
+      if (!msg.includes("duplicate column") && !msg.includes(`duplicate column name: ${column.name}`)) {
+        throw err;
+      }
+    }
+  }
+}
