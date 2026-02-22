@@ -1,62 +1,93 @@
 const $ = (s) => document.querySelector(s);
 const EFFECTS = ["Relaxed", "Creative", "Euphoric", "Focused", "Sleepy", "Hungry", "Uplifted"];
 
-const state = { admin: null, products: [], editing: null };
+const state = { admin: null, products: [], editing: null, needsBootstrap: false };
 
 const toast = (message, type = "ok") => {
   const el = document.createElement("div");
   el.className = `toast ${type === "error" ? "error" : ""}`;
   el.textContent = message;
   $("#toastRoot").appendChild(el);
-  setTimeout(() => el.remove(), 3000);
+  setTimeout(() => el.remove(), 3500);
 };
 
 async function api(path, opts = {}) {
   const res = await fetch(path, { credentials: "include", ...opts });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  if (!res.ok) {
+    const message = data.msg || data.error || `Request failed (${res.status})`;
+    throw new Error(message);
+  }
   return data;
 }
 
-function renderAuth(needsBootstrap = false) {
+function setWorkspaceVisible(visible) {
+  $(".sidebar").hidden = !visible;
+  $("#workspace").hidden = !visible;
+  $("#workspaceTopbar").hidden = !visible;
+}
+
+function renderAuth() {
   const root = $("#authView");
   if (state.admin) {
     root.hidden = true;
-    $("#workspace").hidden = false;
+    setWorkspaceVisible(true);
     $("#adminIdentity").textContent = `${state.admin.name || state.admin.email} (${state.admin.role})`;
     return;
   }
-  $("#workspace").hidden = true;
+
+  setWorkspaceVisible(false);
   root.hidden = false;
-  root.innerHTML = needsBootstrap ? `
-    <h3>Bootstrap Owner</h3>
-    <input id="bootSecret" placeholder="Bootstrap secret" type="password" />
-    <input id="bootEmail" placeholder="Owner email" />
-    <input id="bootName" placeholder="Owner name" />
-    <input id="bootPassword" placeholder="Password" type="password" />
-    <button id="bootBtn" class="btn btn-gold">Create Owner</button>
-  ` : `
-    <h3>Admin Login</h3>
-    <input id="loginEmail" placeholder="Email" />
-    <input id="loginPassword" placeholder="Password" type="password" />
-    <button id="loginBtn" class="btn btn-gold">Login</button>
+  root.innerHTML = `
+    <div class="card">
+      <h3>Admin Login</h3>
+      <input id="loginEmail" placeholder="Email" />
+      <input id="loginPassword" placeholder="Password" type="password" />
+      <button id="loginBtn" class="btn btn-gold">Login</button>
+    </div>
+    <div class="card" ${state.needsBootstrap ? "" : "hidden"}>
+      <h3>Bootstrap Owner</h3>
+      <input id="bootSecret" placeholder="Bootstrap secret" type="password" />
+      <input id="bootEmail" placeholder="Owner email" />
+      <input id="bootName" placeholder="Owner name" />
+      <input id="bootPassword" placeholder="Password" type="password" />
+      <button id="bootBtn" class="btn btn-gold">Create Owner</button>
+    </div>
   `;
-  if (needsBootstrap) {
+
+  $("#loginBtn").onclick = async () => {
+    try {
+      const d = await api("/api/admin/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: $("#loginEmail").value, password: $("#loginPassword").value }),
+      });
+      state.admin = d.admin;
+      renderAuth();
+      await loadProducts();
+    } catch (e) {
+      toast(`Login failed: ${e.message}`, "error");
+    }
+  };
+
+  if (state.needsBootstrap) {
     $("#bootBtn").onclick = async () => {
       try {
-        await api("/api/admin/auth/bootstrap-create", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ secret: $("#bootSecret").value, email: $("#bootEmail").value, password: $("#bootPassword").value, name: $("#bootName").value }) });
+        await api("/api/admin/auth/bootstrap-create", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            secret: $("#bootSecret").value,
+            email: $("#bootEmail").value,
+            password: $("#bootPassword").value,
+            name: $("#bootName").value,
+          }),
+        });
         toast("Owner created. Please sign in.");
         await init();
-      } catch (e) { toast(e.message, "error"); }
-    };
-  } else {
-    $("#loginBtn").onclick = async () => {
-      try {
-        const d = await api("/api/admin/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: $("#loginEmail").value, password: $("#loginPassword").value }) });
-        state.admin = d.admin;
-        renderAuth();
-        await loadProducts();
-      } catch (e) { toast(e.message, "error"); }
+      } catch (e) {
+        toast(`Bootstrap failed: ${e.message}`, "error");
+      }
     };
   }
 }
@@ -104,8 +135,12 @@ async function maybeUploadImage(productId) {
   const fd = new FormData();
   fd.append("image", file);
   fd.append("productId", productId || crypto.randomUUID());
-  try { return await api("/api/admin/uploads/product-image", { method: "POST", body: fd }); }
-  catch (e) { toast(`Upload unavailable (${e.message}), using URL fallback`, "error"); return {}; }
+  try {
+    return await api("/api/admin/uploads/product-image", { method: "POST", body: fd });
+  } catch (e) {
+    toast(`Upload unavailable (${e.message}), using URL fallback`, "error");
+    return {};
+  }
 }
 
 async function editProduct(id = null) {
@@ -117,6 +152,7 @@ async function editProduct(id = null) {
   const root = $("#authView");
   root.hidden = false;
   $("#workspace").hidden = true;
+  $("#workspaceTopbar").hidden = true;
   root.innerHTML = productForm(p);
   $("#addVariant").onclick = () => {
     const row = document.createElement("div");
@@ -135,7 +171,9 @@ async function editProduct(id = null) {
       toast("Saved");
       renderAuth();
       await loadProducts();
-    } catch (e) { toast(e.message, "error"); }
+    } catch (e) {
+      toast(e.message, "error");
+    }
   };
 }
 
@@ -146,20 +184,33 @@ async function loadProducts() {
   const d = await api(`/api/admin/products?query=${q}&category=${category}&published=${published}`);
   state.products = d.products || [];
   $("#productsList").innerHTML = state.products.map((p) => `<div class='card'><div><strong>${p.name}</strong> <span class='muted'>${p.category || ""}/${p.subcategory || ""}</span></div><div><img src='${p.image_url || (p.image_key ? `/api/images/${encodeURIComponent(p.image_key)}` : p.image_path || "")}' style='max-width:80px;max-height:80px'/></div><div>${p.effects.map((e) => `<span class='badge'>${e}</span>`).join(" ")}</div><div><button class='btn edit' data-id='${p.id}'>Edit</button><button class='btn del' data-id='${p.id}'>Delete</button><button class='btn unpub' data-id='${p.id}'>Unpublish</button></div></div>`).join("");
-  document.querySelectorAll(".edit").forEach((b) => b.onclick = () => editProduct(b.dataset.id));
-  document.querySelectorAll(".del").forEach((b) => b.onclick = async () => { await api(`/api/admin/products/${b.dataset.id}`, { method: "DELETE" }); await loadProducts(); });
-  document.querySelectorAll(".unpub").forEach((b) => b.onclick = async () => { await api(`/api/admin/products/${b.dataset.id}?mode=unpublish`, { method: "DELETE" }); await loadProducts(); });
+  document.querySelectorAll(".edit").forEach((b) => (b.onclick = () => editProduct(b.dataset.id)));
+  document.querySelectorAll(".del").forEach((b) => (b.onclick = async () => { await api(`/api/admin/products/${b.dataset.id}`, { method: "DELETE" }); await loadProducts(); }));
+  document.querySelectorAll(".unpub").forEach((b) => (b.onclick = async () => { await api(`/api/admin/products/${b.dataset.id}?mode=unpublish`, { method: "DELETE" }); await loadProducts(); }));
 }
 
 async function init() {
-  $("#logoutBtn").onclick = async () => { await api("/api/admin/auth/logout", { method: "POST" }); state.admin = null; await init(); };
+  $("#logoutBtn").onclick = async () => {
+    await api("/api/admin/auth/logout", { method: "POST" });
+    state.admin = null;
+    await init();
+  };
   $("#newProductBtn").onclick = () => editProduct(null);
-  ["#search", "#categoryFilter", "#publishedFilter"].forEach((sel) => { $(sel).onchange = () => loadProducts().catch((e) => toast(e.message, "error")); });
+  ["#search", "#categoryFilter", "#publishedFilter"].forEach((sel) => {
+    $(sel).onchange = () => loadProducts().catch((e) => toast(e.message, "error"));
+  });
 
   const boot = await api("/api/admin/auth/bootstrap-create");
-  const me = await api("/api/admin/auth/me");
-  state.admin = me.ok ? me.admin : null;
-  renderAuth(boot.needs_bootstrap && !state.admin);
+  state.needsBootstrap = !!boot.needs_bootstrap;
+
+  try {
+    const me = await api("/api/admin/auth/me");
+    state.admin = me.ok ? me.admin : null;
+  } catch {
+    state.admin = null;
+  }
+
+  renderAuth();
   if (state.admin) await loadProducts();
 }
 

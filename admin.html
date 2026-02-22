@@ -9,9 +9,9 @@
 </head>
 <body>
   <div class="admin-app">
-    <aside class="sidebar"><div><div class="logo">BBE</div><h1>Admin Workspace</h1></div><div id="adminIdentity" class="sidebar-footer">Not signed in</div></aside>
+    <aside class="sidebar" hidden><div><div class="logo">BBE</div><h1>Admin Workspace</h1></div><div id="adminIdentity" class="sidebar-footer">Not signed in</div></aside>
     <main class="main">
-      <header class="topbar panel">
+      <header id="workspaceTopbar" class="topbar panel" hidden>
         <input id="search" type="search" placeholder="Search products" />
         <select id="categoryFilter"><option value="">All categories</option><option>Flower</option><option>Concentrates</option><option>Accessories</option></select>
         <select id="publishedFilter"><option value="">All status</option><option value="1">Published</option><option value="0">Unpublished</option></select>
