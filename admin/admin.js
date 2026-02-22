@@ -3,6 +3,8 @@ const views = ["dashboard", "orders", "customers", "products", "verification"];
 const navItems = [["dashboard", "Dashboard"], ["orders", "Orders"], ["customers", "Customers"], ["products", "Products"], ["verification", "Verification"]];
 const TIER_THRESHOLDS = { Bronze: 0, Silver: 250, Gold: 750, Platinum: 1500 };
 const DEFAULT_LOW_STOCK = 5;
+let confirmResolve = null;
+let confirmFailsafeTimeout = null;
 
 const state = {
   view: "dashboard",
@@ -13,7 +15,6 @@ const state = {
   filters: { orders: "", customers: "", products: "" },
   focusReturn: null,
   palette: { open: false, query: "", active: 0, results: [] },
-  pendingConfirm: null,
   data: {},
 };
 
@@ -226,7 +227,56 @@ async function openOrderDrawer(id) { state.drawer = { type: "order", id, tab: "S
 async function openCustomerDrawer(id) { state.drawer = { type: "customer", id, tab: "Profile" }; openDrawer("Customer"); await renderDrawer(); }
 async function openProductDrawer(id) { state.drawer = { type: "product", id, tab: "General" }; openDrawer(id === "new" ? "New Product" : "Product"); await renderDrawer(); }
 
-function showConfirm(message, onConfirm) { state.pendingConfirm = onConfirm; $("#confirmText").textContent = message; $("#confirmModal").hidden = false; trapFocus($("#confirmModal")); }
+function hideConfirmModal() {
+  const modal = $("#confirmModal");
+  if (!modal) return;
+  modal.hidden = true;
+  if (confirmFailsafeTimeout) {
+    clearTimeout(confirmFailsafeTimeout);
+    confirmFailsafeTimeout = null;
+  }
+}
+
+function forceHideConfirmModal() {
+  confirmResolve = null;
+  hideConfirmModal();
+}
+
+function dismissConfirmWithResult(result) {
+  const resolve = confirmResolve;
+  confirmResolve = null;
+  hideConfirmModal();
+  if (resolve) resolve(result);
+  releaseFocus();
+}
+
+function enforceConfirmModalFailsafe() {
+  const modal = $("#confirmModal");
+  if (!modal || modal.hidden) return;
+  if (!confirmResolve) {
+    forceHideConfirmModal();
+    return;
+  }
+  if (confirmFailsafeTimeout) clearTimeout(confirmFailsafeTimeout);
+  confirmFailsafeTimeout = setTimeout(() => {
+    const activeModal = $("#confirmModal");
+    if (activeModal && !activeModal.hidden && !confirmResolve) forceHideConfirmModal();
+  }, 2000);
+}
+
+window.bbConfirm = ({ title = "Confirm action?", message = "", confirmText = "Confirm", cancelText = "Cancel" } = {}) => new Promise((resolve) => {
+  const modal = $("#confirmModal");
+  const confirmTextNode = $("#confirmText");
+  if (!modal || !confirmTextNode) { resolve(false); return; }
+
+  confirmResolve = resolve;
+  confirmTextNode.textContent = message ? `${title}\n${message}` : title;
+  $("#confirmOk").textContent = confirmText;
+  $("#confirmCancel").textContent = cancelText;
+  modal.hidden = false;
+  trapFocus(modal);
+  enforceConfirmModalFailsafe();
+});
 
 async function renderDrawer() {
   const body = $("#drawerBody"); const actions = $("#drawerActions"); body.replaceChildren(rowSkeleton(6)); actions.replaceChildren();
@@ -286,6 +336,7 @@ async function renderView() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  forceHideConfirmModal();
   buildNav(); setLocked(true); renderView();
   $("#unlockBtn").onclick = async () => {
     try {
@@ -303,12 +354,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("#paletteInput").addEventListener("input", () => { state.palette.active = 0; renderPalette(); });
   $("#paletteClose").onclick = closePalette;
-  $("#confirmCancel").onclick = () => { $("#confirmModal").hidden = true; releaseFocus(); };
-  $("#confirmOk").onclick = async () => { const fn = state.pendingConfirm; $("#confirmModal").hidden = true; if (fn) await fn(); releaseFocus(); };
+  $("#confirmCancel").onclick = () => dismissConfirmWithResult(false);
+  $("#confirmOk").onclick = () => dismissConfirmWithResult(true);
+
+  const confirmModal = $("#confirmModal");
+  new MutationObserver(() => enforceConfirmModalFailsafe()).observe(confirmModal, { attributes: true, attributeFilter: ["hidden", "class", "style"] });
+  enforceConfirmModalFailsafe();
 
   document.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); state.palette.active = 0; openPalette(); renderPalette(); }
-    if (e.key === "Escape") { if (state.palette.open) closePalette(); else clearDrawer(); }
+    if (e.key === "Escape") {
+      const confirmModalOpen = !$("#confirmModal").hidden;
+      if (confirmModalOpen) {
+        e.preventDefault();
+        dismissConfirmWithResult(false);
+        return;
+      }
+      if (state.palette.open) closePalette(); else clearDrawer();
+    }
     if (state.palette.open && ["ArrowDown", "ArrowUp", "Enter"].includes(e.key)) {
       e.preventDefault();
       if (e.key === "ArrowDown") state.palette.active = Math.min(state.palette.active + 1, state.palette.results.length - 1);
