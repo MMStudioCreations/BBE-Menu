@@ -7,16 +7,22 @@ const THROTTLE_LIMIT_PER_EMAIL = 3;
 
 export const onRequestPost: PagesFunction = async (context) => {
   const { request, env } = context;
-  const db = env.DB as D1Database;
   const responseHeaders = new Headers({
+    "X-BB-UsersCount": "0",
+    "X-BB-Reset-Err": "",
     "X-BB-Reset-UserFound": "0",
     "X-BB-Reset-Inserted": "0",
     "X-BB-Reset-EmailSent": "0",
   });
 
-  if (!db) return okResponse(responseHeaders);
+  const setErr = (code: string) => {
+    if (!responseHeaders.get("X-BB-Reset-Err")) responseHeaders.set("X-BB-Reset-Err", code);
+  };
 
   try {
+    if (!env.DB) throw new Error("Missing env.DB binding");
+    const db = env.DB as D1Database;
+
     let body: any;
     try {
       body = await request.json();
@@ -24,26 +30,30 @@ export const onRequestPost: PagesFunction = async (context) => {
       body = {};
     }
 
-    const email = String(body?.email ?? body?.Email ?? "").trim().toLowerCase();
+    const emailNorm = String(body?.email ?? body?.Email ?? "").trim().toLowerCase();
     const ip = getIpAddress(request);
     const userAgent = (request.headers.get("user-agent") || "").slice(0, 512);
-    const emailMasked = maskEmail(email);
+    const emailMasked = maskEmail(emailNorm);
 
     console.log("reset: requested", emailMasked);
 
-    if (!email || !email.includes("@")) return okResponse(responseHeaders);
+    const cRow = await db.prepare("SELECT COUNT(*) AS c FROM users").first<{ c: number | string }>();
+    const usersCount = Number(cRow?.c ?? 0);
+    responseHeaders.set("X-BB-UsersCount", String(usersCount));
+
+    if (!emailNorm || !emailNorm.includes("@")) return okResponse(responseHeaders);
 
     const now = new Date();
     const throttledIp = await isThrottled(db, "ip", ip || "unknown", now, THROTTLE_LIMIT_PER_IP);
-    const throttledEmail = await isThrottled(db, "email", email, now, THROTTLE_LIMIT_PER_EMAIL);
+    const throttledEmail = await isThrottled(db, "email", emailNorm, now, THROTTLE_LIMIT_PER_EMAIL);
     if (throttledIp || throttledEmail) {
-      console.log("[auth/password/forgot] throttled request", { ipPresent: Boolean(ip), emailDomain: email.split("@")[1] || "" });
+      console.log("[auth/password/forgot] throttled request", { ipPresent: Boolean(ip), emailDomain: emailNorm.split("@")[1] || "" });
       return okResponse(responseHeaders);
     }
 
     const user = await db
-      .prepare("SELECT id, email FROM users WHERE lower(email)=? LIMIT 1")
-      .bind(email)
+      .prepare("SELECT id, email FROM users WHERE lower(trim(email)) = ? LIMIT 1")
+      .bind(emailNorm)
       .first<{ id: string; email: string }>();
 
     const userFound = Boolean(user?.id);
@@ -70,13 +80,21 @@ export const onRequestPost: PagesFunction = async (context) => {
       inserted = true;
     } catch (error) {
       console.error("reset insert failed", error);
+      const msg = error instanceof Error ? error.message.toLowerCase() : String(error || "").toLowerCase();
+      if (msg.includes("no such table") && msg.includes("password_reset_tokens")) {
+        setErr("missing_table");
+      } else {
+        setErr("db_error");
+      }
       responseHeaders.set("X-BB-Reset-Inserted", "0");
     }
     console.log("reset: inserted", inserted);
 
     if (inserted) {
       const resetUrl = `https://bobbyblacknyc.com/reset-password.html?token=${encodeURIComponent(token)}`;
-      const emailSent = await sendPasswordResetEmail(env, email, resetUrl);
+      const { sent, errorCode } = await sendPasswordResetEmail(env, emailNorm, resetUrl);
+      if (errorCode) setErr(errorCode);
+      const emailSent = sent;
       responseHeaders.set("X-BB-Reset-EmailSent", emailSent ? "1" : "0");
       console.log("reset: emailSent", emailSent);
     } else {
@@ -85,7 +103,11 @@ export const onRequestPost: PagesFunction = async (context) => {
 
     return okResponse(responseHeaders);
   } catch (err) {
-    console.error("[auth/password/forgot] error", err);
+    console.error("password/forgot error", err);
+    responseHeaders.set("X-BB-Reset-Err", "db_error");
+    responseHeaders.set("X-BB-Reset-UserFound", "0");
+    responseHeaders.set("X-BB-Reset-Inserted", "0");
+    responseHeaders.set("X-BB-Reset-EmailSent", "0");
     return okResponse(responseHeaders);
   }
 };
@@ -159,12 +181,16 @@ async function sha256Hex(value: string) {
   return arr.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function sendPasswordResetEmail(env: any, email: string, resetUrl: string) {
+async function sendPasswordResetEmail(env: any, email: string, resetUrl: string): Promise<{ sent: boolean; errorCode: string }> {
   const apiKey = env.RESEND_API_KEY;
   const mailFrom = env.MAIL_FROM;
-  if (!apiKey || !mailFrom) {
-    console.error("reset: emailSent", "missing RESEND_API_KEY or MAIL_FROM");
-    return false;
+  if (!apiKey) {
+    console.error("reset: emailSent", "missing RESEND_API_KEY");
+    return { sent: false, errorCode: "missing_resend_key" };
+  }
+  if (!mailFrom) {
+    console.error("reset: emailSent", "missing MAIL_FROM");
+    return { sent: false, errorCode: "resend_error" };
   }
 
   const html = `
@@ -197,13 +223,13 @@ async function sendPasswordResetEmail(env: any, email: string, resetUrl: string)
 
     if (!resendResponse.ok) {
       console.error("reset: emailSent", `resend_failed_${resendResponse.status}`);
-      return false;
+      return { sent: false, errorCode: "resend_error" };
     }
 
-    return true;
+    return { sent: true, errorCode: "" };
   } catch (error) {
     console.error("reset: emailSent", error);
-    return false;
+    return { sent: false, errorCode: "resend_error" };
   }
 }
 
