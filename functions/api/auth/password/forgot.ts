@@ -7,9 +7,13 @@ const THROTTLE_LIMIT_PER_EMAIL = 3;
 
 export const onRequestPost: PagesFunction = async (context) => {
   const { request, env } = context;
+  let phase = "start";
+  let errMsg = "";
   const responseHeaders = new Headers({
     "X-BB-UsersCount": "0",
+    "X-BB-Reset-Phase": phase,
     "X-BB-Reset-Err": "",
+    "X-BB-Reset-ErrMsg": "",
     "X-BB-Reset-UserFound": "0",
     "X-BB-Reset-Inserted": "0",
     "X-BB-Reset-EmailSent": "0",
@@ -21,10 +25,21 @@ export const onRequestPost: PagesFunction = async (context) => {
     if (!responseHeaders.get("X-BB-Reset-Err")) responseHeaders.set("X-BB-Reset-Err", code);
   };
 
+  const normalizeHeaderValue = (value: unknown) =>
+    String(value ?? "")
+      .replace(/[\r\n]+/g, " ")
+      .slice(0, 120);
+
+  const setPhase = (nextPhase: string) => {
+    phase = nextPhase;
+    setHeader("X-BB-Reset-Phase", normalizeHeaderValue(nextPhase));
+  };
+
   try {
     if (!env.DB) throw new Error("Missing env.DB binding");
     const db = env.DB as D1Database;
 
+    setPhase("parse_body");
     let body: any;
     try {
       body = await request.json();
@@ -39,6 +54,7 @@ export const onRequestPost: PagesFunction = async (context) => {
 
     console.log("reset: requested", emailMasked);
 
+    setPhase("users_count");
     const cRow = await db.prepare("SELECT COUNT(*) AS c FROM users").first<{ c: number | string }>();
     const usersCount = Number(cRow?.c ?? 0);
     setHeader("X-BB-UsersCount", String(usersCount));
@@ -53,6 +69,7 @@ export const onRequestPost: PagesFunction = async (context) => {
       return okResponse(responseHeaders);
     }
 
+    setPhase("lookup_user");
     let u: { id: string; email: string } | null = null;
     try {
       const result = await env.DB
@@ -80,6 +97,10 @@ export const onRequestPost: PagesFunction = async (context) => {
     const expiresAt = new Date(now.getTime() + RESET_WINDOW_MINUTES * 60 * 1000).toISOString();
 
     let inserted = false;
+    setPhase("check_reset_table");
+    await db.prepare("SELECT 1 FROM password_reset_tokens LIMIT 1").first();
+
+    setPhase("insert_token");
     try {
       await db
         .prepare(
@@ -103,6 +124,7 @@ export const onRequestPost: PagesFunction = async (context) => {
     console.log("reset: inserted", inserted);
 
     if (inserted) {
+      setPhase("send_email");
       const resetUrl = `https://bobbyblacknyc.com/reset-password.html?token=${encodeURIComponent(token)}`;
       const { sent, errorCode } = await sendPasswordResetEmail(env, emailNorm, resetUrl);
       if (errorCode) setErr(errorCode);
@@ -115,8 +137,11 @@ export const onRequestPost: PagesFunction = async (context) => {
 
     return okResponse(responseHeaders);
   } catch (err) {
-    console.error("password/forgot error", err);
+    errMsg = normalizeHeaderValue((err as any)?.message || err);
+    console.error("password/forgot failed at", phase, err);
+    setHeader("X-BB-Reset-Phase", normalizeHeaderValue(phase));
     setHeader("X-BB-Reset-Err", "db_error");
+    setHeader("X-BB-Reset-ErrMsg", errMsg);
     setHeader("X-BB-Reset-UserFound", "0");
     setHeader("X-BB-Reset-Inserted", "0");
     setHeader("X-BB-Reset-EmailSent", "0");
