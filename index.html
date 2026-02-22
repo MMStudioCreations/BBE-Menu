@@ -780,6 +780,7 @@
   <div class="wrap">
 
     <!-- ===== FEATURED STRAINS ===== -->
+    <section id="featuredSection">
     <div class="section-title">Featured Strains</div>
     <div class="featured-wrap">
       <div class="featured-head">
@@ -793,6 +794,7 @@
       <div class="carousel" id="carousel"></div>
       <div class="dots" id="dots"></div>
     </div>
+    </section>
 
     <!-- ===== BRANDS ===== -->
     <div id="brands" class="section-title">Brands</div>
@@ -1047,7 +1049,7 @@
             <div class="feature-brand">${item.brand || 'Bobby Black Exclusive'}</div>
             <div class="feature-title">${String(item.name||"").toUpperCase()}</div>
             <div class="feature-meta">
-              <span class="meta-pill">${item.category || 'Product'}</span>
+              <span class="meta-pill">Flower</span>
               <span class="meta-pill">From: ${moneyFromCents(item.from_price_cents)}</span>
               <span class="meta-pill">Tap to view</span>
             </div>
@@ -1082,9 +1084,9 @@
 
     async function loadFeatured(){
       try {
-        const selected = await fetchProducts({ featured: '1', published: '1', limit: '5' });
+        const selected = await fetchProducts({ featured: '1', category: 'Flower', published: '1', limit: '5' });
         if(selected.length < 5){
-          const fallback = await fetchProducts({ published: '1', limit: '5' });
+          const fallback = await fetchProducts({ category: 'Flower', published: '1', limit: '5' });
           const seen = new Set(selected.map(item => item.id));
           for(const item of fallback){
             if(seen.has(item.id)) continue;
@@ -1097,7 +1099,7 @@
         featured = selected.slice(0,5);
 
         if(!featured.length){
-          carouselEl.innerHTML = `<div style="color:#b00000;font-weight:900">No featured products available.</div>`;
+          document.getElementById('featuredSection').style.display = 'none';
           return;
         }
 
