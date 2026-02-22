@@ -46,6 +46,10 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
 
   const newUsers = await db.prepare(`SELECT COUNT(*) AS c FROM users WHERE created_at >= ? AND created_at <= ?`).bind(start, end).first<any>();
 
+  const totalUsers = await db.prepare("SELECT COUNT(*) AS c FROM users").first<any>();
+  const activeUsers = await db.prepare("SELECT COUNT(*) AS c FROM users WHERE COALESCE(is_active, 1) = 1").first<any>();
+  const pendingVerification = await db.prepare("SELECT COUNT(*) AS c FROM users WHERE COALESCE(account_status, 'pending') = 'pending'").first<any>();
+
   const completed = Number(metrics?.orders_completed || 0);
   const revenue = Number(metrics?.revenue_cents || 0);
 
@@ -58,6 +62,10 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     top_products: topProducts.results || [],
     new_users: Number(newUsers?.c || 0),
     guest_orders: Number(metrics?.guest_orders || 0),
+    totalUsers: Number(totalUsers?.c || 0),
+    activeUsers: Number(activeUsers?.c || 0),
+    ordersLast7Days: Number(metrics?.orders_completed || 0) + Number(metrics?.orders_pending || 0) + Number(metrics?.orders_cancelled || 0),
+    pendingVerification: Number(pendingVerification?.c || 0),
     metrics: {
       revenue_completed_cents: revenue,
       orders_completed_count: completed,

@@ -3,6 +3,7 @@ const state = { admin: null, needsBootstrap: false, panel: "dashboard", views: [
 
 const navItems = [
   ["dashboard", "Dashboard"],
+  ["csm", "CSM Dashboard"],
   ["orders", "Orders"],
   ["customers", "Customers"],
   ["products", "Products"],
@@ -42,20 +43,30 @@ function renderAuth() {
   if (state.admin) {
     root.hidden = true;
     setWorkspaceVisible(true);
-    $("#adminIdentity").textContent = `${state.admin.name || state.admin.email} (${state.admin.role})`;
+    $("#adminIdentity").textContent = `${state.admin.name || state.admin.email || state.admin.username} (${state.admin.role})`;
     return renderApp();
   }
 
   setWorkspaceVisible(false);
   root.hidden = false;
-  root.innerHTML = `<div class="card"><h3>Admin Login</h3><input id="loginEmail" placeholder="Email" /><input id="loginPassword" placeholder="Password" type="password" /><button id="loginBtn" class="btn btn-gold">Login</button></div>
+  root.innerHTML = `<div class="card"><h3>Admin Login</h3><input id="loginUsername" placeholder="Username" /><input id="loginSecret" placeholder="Secret" type="password" /><div id="loginStatus" class="muted" style="min-height:18px;margin:8px 0 0;"></div><button id="loginBtn" class="btn btn-gold">Login</button></div>
   <div class="card" ${state.needsBootstrap ? "" : "hidden"}><h3>Bootstrap Super Admin</h3><input id="bootSecret" placeholder="Bootstrap secret" type="password" /><input id="bootEmail" placeholder="Owner email" /><input id="bootName" placeholder="Owner name" /><input id="bootPassword" placeholder="Password" type="password" /><button id="bootBtn" class="btn btn-gold">Bootstrap</button></div>`;
 
   $("#loginBtn").onclick = async () => {
+    const status = $("#loginStatus");
+    status.textContent = "";
     try {
-      const d = await api("/api/admin/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: $("#loginEmail").value, password: $("#loginPassword").value }) });
-      state.admin = d.data?.admin || d.admin; renderAuth();
-    } catch (e) { toast(e.message, "error"); }
+      const d = await api("/api/admin/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username: $("#loginUsername").value, secret: $("#loginSecret").value })
+      });
+      state.admin = d.data?.admin || d.admin;
+      renderAuth();
+    } catch (e) {
+      status.textContent = e.message;
+      toast(e.message, "error");
+    }
   };
 
   if (state.needsBootstrap) {
@@ -107,6 +118,23 @@ async function panelDashboard() {
   </tbody></table></div>`;
 }
 
+async function panelCsm() {
+  const [dashboard, totalUsers, activeUsers, pendingVerification] = await Promise.all([
+    api(`/api/admin/dashboard?range=7d`),
+    api(`/api/admin/customers?limit=1`).catch(() => ({ customers: [] })),
+    api(`/api/admin/customers?active=1&limit=1`).catch(() => ({ customers: [] })),
+    api(`/api/admin/verification/pending`).catch(() => ({ users: [] })),
+  ]);
+  const m = dashboard.metrics || {};
+  return `<div class="dashboard-controls"><h2>CSM Dashboard</h2><span class="muted">Customer lifecycle summary</span></div>
+  <div class="cards">
+  <div class="card"><div class="muted">Total Users</div><h3>${Number(dashboard.totalUsers || totalUsers.customers?.length || 0)}</h3></div>
+  <div class="card"><div class="muted">Active Users</div><h3>${Number(dashboard.activeUsers || activeUsers.customers?.length || 0)}</h3></div>
+  <div class="card"><div class="muted">Orders (7d)</div><h3>${Number(dashboard.ordersLast7Days || m.orders_completed_count || 0)}</h3></div>
+  <div class="card"><div class="muted">Pending Verification</div><h3>${Number(dashboard.pendingVerification || pendingVerification.users?.length || 0)}</h3></div>
+  </div>`;
+}
+
 async function panelOrders() {
   const q = encodeURIComponent($("#globalSearch").value || "");
   const d = await api(`/api/admin/orders?query=${q}`);
@@ -150,7 +178,7 @@ async function panelAdminUsers() {
 async function renderApp() {
   renderNav();
   const root = $("#workspace");
-  const panels = { dashboard: panelDashboard, orders: panelOrders, customers: panelCustomers, products: panelProducts, verification: panelVerification, "admin-users": panelAdminUsers };
+  const panels = { dashboard: panelDashboard, csm: panelCsm, orders: panelOrders, customers: panelCustomers, products: panelProducts, verification: panelVerification, "admin-users": panelAdminUsers };
   const fn = panels[state.panel] || panelDashboard;
   root.innerHTML = `<div class='skeleton'></div><div class='skeleton'></div>`;
   try {
@@ -180,6 +208,9 @@ function bindPanelEvents() {
 }
 
 async function init() {
+  const requestedView = (new URL(window.location.href)).searchParams.get("view");
+  if (requestedView) state.panel = requestedView;
+
   $("#logoutBtn").onclick = async () => { await api("/api/admin/logout", { method: "POST" }); state.admin = null; $("#detailDrawer").classList.remove("open"); renderAuth(); };
   $("#drawerClose").onclick = () => { const d=$("#detailDrawer"); d.classList.remove("open"); d.classList.remove("minimized"); };
   const m = $("#drawerMinimize");
