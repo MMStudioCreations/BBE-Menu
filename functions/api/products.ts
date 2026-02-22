@@ -15,8 +15,10 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
   const rawLimit = Number.parseInt((url.searchParams.get("limit") || "").trim(), 10);
   const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 100;
 
-  const where: string[] = [];
-  const binds: unknown[] = [];
+  const excludedSlugs = ["jelly-fish", "space-candy"];
+
+  const where: string[] = ["LOWER(p.slug) NOT IN (?, ?)"];
+  const binds: unknown[] = [...excludedSlugs];
 
   if (featuredParam === "1") {
     where.push("p.is_featured = ?");

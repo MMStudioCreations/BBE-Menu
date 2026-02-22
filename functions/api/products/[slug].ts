@@ -6,6 +6,9 @@ export const onRequestGet: PagesFunction = async ({ params, env }) => {
   const slug = String(params.slug || "").trim();
   if (!slug) return json({ error: "Missing slug" }, 400);
 
+  const excludedSlugs = new Set(["jelly-fish", "space-candy"]);
+  if (excludedSlugs.has(slug.toLowerCase())) return json({ error: "Not found" }, 404);
+
   const product = await db
     .prepare(
       `SELECT

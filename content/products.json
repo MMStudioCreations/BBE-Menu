@@ -59,35 +59,6 @@
       "image": "images/Zaamatic.png"
     },
     {
-      "id": "jelly-fish",
-      "name": "Jelly Fish",
-      "category": "Flower",
-      "subcategory": "CA$H RULE$",
-      "live": true,
-      "sale": false,
-      "pricingType": "By Size (3.5/7/14/28)",
-      "prices": {
-        "g3_5": 50,
-        "g7": 100,
-        "g14": 180,
-        "g28": 340
-      },
-      "availability": {
-        "g3_5": true,
-        "g7": true,
-        "g14": true,
-        "g28": true
-      },
-      "description": "",
-      "effects": [
-        "RELAXED",
-        "HAPPY",
-        "MUNCHIES",
-        "CALM"
-      ],
-      "image": "images/JellyFish.JPG"
-    },
-    {
       "id": "double-bubble",
       "name": "Double bubble",
       "category": "Flower",
@@ -144,35 +115,6 @@
         "CREATIVE"
       ],
       "image": "images/Pink-Certz.png"
-    },
-    {
-      "id": "space-candy",
-      "name": "Space candy",
-      "category": "Flower",
-      "subcategory": "LOOSE LINEUP",
-      "live": true,
-      "sale": false,
-      "pricingType": "By Size (3.5/7/14/28)",
-      "prices": {
-        "g3_5": 25,
-        "g7": 45,
-        "g14": 90,
-        "g28": 160
-      },
-      "availability": {
-        "g3_5": true,
-        "g7": true,
-        "g14": true,
-        "g28": true
-      },
-      "description": "",
-      "effects": [
-        "CREATIVE",
-        "UPLIFTED",
-        "EUPHORIC",
-        "CLEAR-HEADED"
-      ],
-      "image": "images/Space-Candy.png"
     },
     {
       "id": "fruit-snacks",
