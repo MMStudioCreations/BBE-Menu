@@ -43,7 +43,8 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
       `SELECT
         p.*,
         COUNT(v.id) AS variant_count,
-        COALESCE(SUM(CASE WHEN v.is_active = 1 THEN v.inventory_qty ELSE 0 END), 0) AS total_inventory
+        COALESCE(SUM(CASE WHEN v.is_active = 1 THEN v.inventory_qty ELSE 0 END), 0) AS total_inventory,
+        MAX(CASE WHEN v.is_active = 1 AND v.inventory_qty <= COALESCE(v.low_stock_threshold, 5) THEN 1 ELSE 0 END) AS low_stock
       FROM products p
       LEFT JOIN product_variants v ON v.product_id = p.id
       ${whereSql}
@@ -58,6 +59,7 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     ...row,
     variant_count: Number(row.variant_count || 0),
     total_inventory: Number(row.total_inventory || 0),
+    low_stock: Number(row.low_stock || 0),
     effects: parseEffects(row.effects_json),
   }));
 

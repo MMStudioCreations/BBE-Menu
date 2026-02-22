@@ -15,12 +15,8 @@
         <h1>Admin Workspace</h1>
         <nav id="sidebarNav" class="nav"></nav>
       </div>
-      <div class="sidebar-footer">
-        <span>Session:</span>
-        <strong id="lockIndicator">Locked</strong>
-      </div>
+      <div class="sidebar-footer"><span>Session:</span><strong id="lockIndicator">Locked</strong></div>
     </aside>
-
     <main class="main">
       <header class="topbar panel">
         <input id="globalSearch" type="search" placeholder="Search current view ( / )" />
@@ -31,10 +27,8 @@
           <span id="unlockStatus" class="muted">Locked</span>
         </div>
       </header>
-
       <section id="viewContent" class="content panel"></section>
     </main>
-
     <aside id="drawer" class="drawer" aria-hidden="true">
       <div class="drawer-head">
         <h2 id="drawerTitle">Details</h2>
@@ -48,6 +42,22 @@
     </aside>
     <button id="drawerTab" class="drawer-tab" hidden>Open Panel</button>
   </div>
+
+  <div id="commandPalette" class="modal palette" hidden>
+    <div class="modal-card">
+      <div class="modal-head"><strong>Command Palette</strong><button id="paletteClose" class="btn btn-small">Close</button></div>
+      <input id="paletteInput" type="search" placeholder="Search commands, customers, orders, products" />
+      <div id="paletteResults" class="palette-results"></div>
+    </div>
+  </div>
+
+  <div id="confirmModal" class="modal" hidden>
+    <div class="modal-card">
+      <p id="confirmText">Confirm action?</p>
+      <div class="modal-actions"><button id="confirmCancel" class="btn">Cancel</button><button id="confirmOk" class="btn btn-gold">Confirm</button></div>
+    </div>
+  </div>
+
   <div id="toastRoot" class="toast-root"></div>
 </body>
 </html>
