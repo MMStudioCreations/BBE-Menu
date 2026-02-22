@@ -11,6 +11,7 @@ export const onRequestPost: PagesFunction = async (context) => {
   const responseHeaders = new Headers({
     "X-BB-Reset-UserFound": "0",
     "X-BB-Reset-Inserted": "0",
+    "X-BB-Reset-EmailSent": "0",
   });
 
   if (!db) return okResponse(responseHeaders);
@@ -26,6 +27,9 @@ export const onRequestPost: PagesFunction = async (context) => {
     const email = String(body?.email ?? body?.Email ?? "").trim().toLowerCase();
     const ip = getIpAddress(request);
     const userAgent = (request.headers.get("user-agent") || "").slice(0, 512);
+    const emailMasked = maskEmail(email);
+
+    console.log("reset: requested", emailMasked);
 
     if (!email || !email.includes("@")) return okResponse(responseHeaders);
 
@@ -42,7 +46,10 @@ export const onRequestPost: PagesFunction = async (context) => {
       .bind(email)
       .first<{ id: string; email: string }>();
 
-    if (!user?.id) return okResponse(responseHeaders);
+    const userFound = Boolean(user?.id);
+    console.log("reset: userFound", userFound);
+
+    if (!userFound) return okResponse(responseHeaders);
     responseHeaders.set("X-BB-Reset-UserFound", "1");
 
     const token = randomToken(32);
@@ -50,8 +57,9 @@ export const onRequestPost: PagesFunction = async (context) => {
     const createdAt = now.toISOString();
     const expiresAt = new Date(now.getTime() + RESET_WINDOW_MINUTES * 60 * 1000).toISOString();
 
+    let inserted = false;
     try {
-      await env.DB
+      await db
         .prepare(
           `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, created_at, request_ip, user_agent)
            VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -59,13 +67,21 @@ export const onRequestPost: PagesFunction = async (context) => {
         .bind(uuid(), user.id, tokenHash, expiresAt, createdAt, ip, userAgent)
         .run();
       responseHeaders.set("X-BB-Reset-Inserted", "1");
+      inserted = true;
     } catch (error) {
       console.error("reset insert failed", error);
       responseHeaders.set("X-BB-Reset-Inserted", "0");
     }
+    console.log("reset: inserted", inserted);
 
-    const resetUrl = `https://bobbyblacknyc.com/reset-password?token=${encodeURIComponent(token)}`;
-    await sendPasswordResetEmail(env, email, resetUrl);
+    if (inserted) {
+      const resetUrl = `https://bobbyblacknyc.com/reset-password.html?token=${encodeURIComponent(token)}`;
+      const emailSent = await sendPasswordResetEmail(env, email, resetUrl);
+      responseHeaders.set("X-BB-Reset-EmailSent", emailSent ? "1" : "0");
+      console.log("reset: emailSent", emailSent);
+    } else {
+      console.log("reset: emailSent", false);
+    }
 
     return okResponse(responseHeaders);
   } catch (err) {
@@ -147,8 +163,8 @@ async function sendPasswordResetEmail(env: any, email: string, resetUrl: string)
   const apiKey = env.RESEND_API_KEY;
   const mailFrom = env.MAIL_FROM;
   if (!apiKey || !mailFrom) {
-    console.error("[auth/password/forgot] missing RESEND_API_KEY or MAIL_FROM");
-    return;
+    console.error("reset: emailSent", "missing RESEND_API_KEY or MAIL_FROM");
+    return false;
   }
 
   const html = `
@@ -164,21 +180,37 @@ async function sendPasswordResetEmail(env: any, email: string, resetUrl: string)
     </div>
   `;
 
-  const resendResponse = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: mailFrom,
-      to: [email],
-      subject: "Reset your Bobby Black password",
-      html,
-    }),
-  });
+  try {
+    const resendResponse = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: mailFrom,
+        to: [email],
+        subject: "Reset your Bobby Black password",
+        html,
+      }),
+    });
 
-  if (!resendResponse.ok) {
-    console.error("[auth/password/forgot] resend failed", { status: resendResponse.status });
+    if (!resendResponse.ok) {
+      console.error("reset: emailSent", `resend_failed_${resendResponse.status}`);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error("reset: emailSent", error);
+    return false;
   }
+}
+
+function maskEmail(email: string) {
+  const [localRaw, domainRaw] = email.split("@");
+  const local = localRaw || "";
+  const domain = domainRaw || "unknown";
+  if (!local) return `***@${domain}`;
+  return `${local[0]}***@${domain}`;
 }

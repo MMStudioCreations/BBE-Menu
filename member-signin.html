@@ -36,6 +36,7 @@
     <div class="card">
       <h1>Member Sign In</h1>
       <p>Sign in to access checkout verification.</p>
+      <div id="resetBanner" class="msg ok" style="display:none;margin-top:0;margin-bottom:12px;">Your password was reset successfully. Please sign in with your new password.</div>
 
       <div id="signedInBox" style="display:none;">
         <p class="ok">You are already signed in.</p>
@@ -64,8 +65,14 @@
     const msg = document.getElementById("msg");
     const signedInBox = document.getElementById("signedInBox");
     const logoutBtn = document.getElementById("logoutBtn");
+    const resetBanner = document.getElementById("resetBanner");
 
     async function init() {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("reset") === "success") {
+        resetBanner.style.display = "block";
+      }
+
       try {
         const me = await window.bbGetMe();
         if (me && me.loggedIn) {

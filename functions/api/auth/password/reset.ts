@@ -15,9 +15,11 @@ export const onRequestPost: PagesFunction = async (context) => {
 
     const token = String(body?.token || "").trim();
     const newPassword = String(body?.newPassword || "");
+    const confirmPassword = String(body?.confirmPassword || "");
 
-    if (!token) return json({ ok: false, error: "Token is required" }, 400);
-    if (newPassword.length < 10) return json({ ok: false, error: "Password must be at least 10 characters" }, 400);
+    if (!token) return json({ ok: false, error: "invalid_or_expired" }, 400);
+    if (newPassword.length < 10) return json({ ok: false, error: "password_too_short" }, 400);
+    if (confirmPassword && newPassword !== confirmPassword) return json({ ok: false, error: "password_mismatch" }, 400);
 
     const tokenHash = await sha256Hex(token);
     const tokenRow = await db
@@ -31,9 +33,9 @@ export const onRequestPost: PagesFunction = async (context) => {
       .bind(tokenHash)
       .first<{ id: string; user_id: string; expires_at: string; used_at: string | null }>();
 
-    if (!tokenRow) return json({ ok: false, error: "Invalid or expired token" }, 400);
-    if (tokenRow.used_at) return json({ ok: false, error: "Token already used" }, 400);
-    if (Date.parse(tokenRow.expires_at) <= Date.now()) return json({ ok: false, error: "Invalid or expired token" }, 400);
+    if (!tokenRow) return json({ ok: false, error: "invalid_or_expired" }, 400);
+    if (tokenRow.used_at) return json({ ok: false, error: "invalid_or_expired" }, 400);
+    if (Date.parse(tokenRow.expires_at) <= Date.now()) return json({ ok: false, error: "invalid_or_expired" }, 400);
 
     const newHash = await hashPassword(newPassword);
     const now = new Date().toISOString();
@@ -48,7 +50,7 @@ export const onRequestPost: PagesFunction = async (context) => {
     return json({ ok: true });
   } catch (err) {
     console.error("[auth/password/reset] error", err);
-    return json({ ok: false, error: "Unable to reset password" }, 500);
+    return json({ ok: false, error: "server_error" }, 500);
   }
 };
 

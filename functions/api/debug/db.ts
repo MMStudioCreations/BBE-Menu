@@ -1,3 +1,5 @@
+import { requireAdmin } from "../_auth";
+
 export const onRequestGet: PagesFunction = async (context) => {
   const headers = {
     "content-type": "application/json; charset=utf-8",
@@ -5,6 +7,10 @@ export const onRequestGet: PagesFunction = async (context) => {
   };
 
   try {
+  if (!requireAdmin(context.request, context.env)) {
+    return new Response(JSON.stringify({ ok: false, error: "forbidden" }), { status: 403, headers });
+  }
+
     const db = (context.env as any).DB as D1Database | undefined;
     if (!db) {
       return new Response(
