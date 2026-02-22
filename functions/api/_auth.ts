@@ -17,6 +17,56 @@ function getCookie(request: Request, name: string) {
   return null;
 }
 
+type AdminCredential = {
+  username: string;
+  secret: string;
+};
+
+const parseAdminCredentials = (env: any): AdminCredential[] => {
+  const entries: AdminCredential[] = [];
+  const singleSecret = String(env.ADMIN_SECRET || "").trim();
+  if (singleSecret) entries.push({ username: "admin", secret: singleSecret });
+
+  const csvSecrets = String(env.ADMIN_SECRETS || "")
+    .split(",")
+    .map((x: string) => x.trim())
+    .filter(Boolean);
+  csvSecrets.forEach((secret: string, idx: number) => entries.push({ username: `admin${idx + 1}`, secret }));
+
+  const rawLoginMap = String(env.ADMIN_LOGIN_MAP || "").trim();
+  if (!rawLoginMap) return entries;
+
+  try {
+    const parsed = JSON.parse(rawLoginMap);
+    if (!parsed || typeof parsed !== "object") return entries;
+    for (const [username, secret] of Object.entries(parsed)) {
+      const cleanUsername = String(username || "").trim();
+      const cleanSecret = String(secret || "").trim();
+      if (!cleanUsername || !cleanSecret) continue;
+      entries.push({ username: cleanUsername, secret: cleanSecret });
+    }
+  } catch {
+    return entries;
+  }
+
+  return entries;
+};
+
+export const verifyAdminCredential = (env: any, secret: string, username?: string | null): boolean => {
+  const cleanSecret = String(secret || "").trim();
+  const cleanUsername = String(username || "").trim();
+  if (!cleanSecret) return false;
+
+  const credentials = parseAdminCredentials(env);
+  if (!credentials.length) return false;
+
+  if (cleanUsername) {
+    return credentials.some((entry) => entry.username === cleanUsername && entry.secret === cleanSecret);
+  }
+
+  return credentials.some((entry) => entry.secret === cleanSecret);
+};
+
 export async function getSessionUserId(request: Request, env: any): Promise<string | null> {
   const sessionId = getCookie(request, "bb_session");
   if (!sessionId) return null;
@@ -44,7 +94,7 @@ export async function getVerificationStatus(userId: string, env: any): Promise<s
 }
 
 export function requireAdmin(request: Request, env: any): boolean {
-  if (!env.ADMIN_SECRET) return false;
   const secret = request.headers.get("x-admin-secret") || getCookie(request, "bb_admin_secret");
-  return Boolean(secret && secret === env.ADMIN_SECRET);
+  const username = request.headers.get("x-admin-user") || getCookie(request, "bb_admin_user") || null;
+  return verifyAdminCredential(env, secret || "", username);
 }

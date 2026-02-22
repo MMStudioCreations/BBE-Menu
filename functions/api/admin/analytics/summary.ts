@@ -19,7 +19,8 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
         COALESCE(SUM(total_cents), 0) AS revenue_cents,
         COALESCE(SUM(CASE WHEN COALESCE(points_redeemed, 0) > 0 THEN 1 ELSE 0 END), 0) AS redeemed_orders
       FROM orders
-      WHERE created_at >= ?`
+      WHERE created_at >= ?
+        AND LOWER(COALESCE(status, '')) != 'cancelled' `
     )
     .bind(fromIso)
     .first<any>();
@@ -28,7 +29,8 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     .prepare(
       `SELECT COUNT(*) AS orders_count, COALESCE(SUM(total_cents), 0) AS revenue_cents
        FROM orders
-       WHERE created_at >= ?`
+       WHERE created_at >= ?
+         AND LOWER(COALESCE(status, '')) != 'cancelled' `
     )
     .bind(toRangeStartIso("today"))
     .first<any>();
@@ -37,7 +39,8 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     .prepare(
       `SELECT COUNT(*) AS orders_count, COALESCE(SUM(total_cents), 0) AS revenue_cents
        FROM orders
-       WHERE created_at >= ?`
+       WHERE created_at >= ?
+         AND LOWER(COALESCE(status, '')) != 'cancelled' `
     )
     .bind(toRangeStartIso("7"))
     .first<any>();
@@ -46,7 +49,8 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     .prepare(
       `SELECT COUNT(*) AS orders_count, COALESCE(SUM(total_cents), 0) AS revenue_cents
        FROM orders
-       WHERE created_at >= ?`
+       WHERE created_at >= ?
+         AND LOWER(COALESCE(status, '')) != 'cancelled' `
     )
     .bind(toRangeStartIso("30"))
     .first<any>();

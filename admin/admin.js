@@ -16,10 +16,13 @@ const state = {
   focusReturn: null,
   palette: { open: false, query: "", active: 0, results: [] },
   data: {},
+  dashboardPreset: "overview",
 };
 
 function secret() { return sessionStorage.getItem("bb_admin_secret") || ""; }
 function setSecret(v) { sessionStorage.setItem("bb_admin_secret", v); }
+function adminUser() { return sessionStorage.getItem("bb_admin_user") || ""; }
+function setAdminUser(v) { sessionStorage.setItem("bb_admin_user", v); }
 const money = (c) => (c == null ? "—" : `$${(Number(c) / 100).toFixed(2)}`);
 const fmtDate = (d) => (d ? new Date(d).toLocaleString() : "—");
 
@@ -34,6 +37,7 @@ function toast(message, type = "ok") {
 async function safeFetchJson(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   if (secret()) headers["x-admin-secret"] = secret();
+  if (adminUser()) headers["x-admin-user"] = adminUser();
   const res = await fetch(path, { ...opts, headers, credentials: "include" });
   const text = await res.text();
   let data = {};
@@ -143,20 +147,49 @@ async function renderDashboard(root) {
   root.replaceChildren(); root.appendChild(rowSkeleton(6));
   const cards = document.createElement("div"); cards.className = "cards";
   const topLists = document.createElement("div"); topLists.className = "cards";
-  root.replaceChildren(cards, topLists);
+  const controls = document.createElement("div"); controls.className = "card dashboard-controls";
+  const select = document.createElement("select");
+  const presets = [
+    ["overview", "Overview (default)"],
+    ["sales", "Sales focused"],
+    ["customers", "Customer focused"],
+  ];
+  presets.forEach(([id, label]) => select.add(new Option(label, id)));
+  select.value = state.dashboardPreset || "overview";
+  select.onchange = () => { state.dashboardPreset = select.value; renderDashboard(root); };
+  controls.append(Object.assign(document.createElement("strong"), { textContent: "Dashboard view" }), select);
+  root.replaceChildren(controls, cards, topLists);
   try {
     const [summary, topProducts, topCustomers] = await Promise.all([
       safeFetchJson("/api/admin/analytics/summary?range=30"),
       safeFetchJson("/api/admin/analytics/top-products?range=30"),
       safeFetchJson("/api/admin/analytics/top-customers?range=all"),
     ]);
-    const metrics = [
-      ["Orders Today", summary.snapshots.today.orders], ["Revenue Today", money(summary.snapshots.today.revenue_cents)],
-      ["Orders Last 7 Days", summary.snapshots.last7.orders], ["Revenue Last 7 Days", money(summary.snapshots.last7.revenue_cents)],
-      ["Orders Last 30 Days", summary.snapshots.last30.orders], ["Revenue Last 30 Days", money(summary.snapshots.last30.revenue_cents)],
-      ["Redemption Rate", `${Math.round((summary.period.redemption_rate || 0) * 100)}%`],
-    ];
-    metrics.forEach(([k, v]) => { const c = document.createElement("div"); c.className = "card clickable"; c.append(Object.assign(document.createElement("div"), { className: "muted", textContent: k }), Object.assign(document.createElement("h3"), { textContent: String(v) })); cards.appendChild(c); });
+    const metricSets = {
+      overview: [
+        ["Orders Today", summary.snapshots.today.orders], ["Revenue Today", money(summary.snapshots.today.revenue_cents)],
+        ["Orders Last 7 Days", summary.snapshots.last7.orders], ["Revenue Last 7 Days", money(summary.snapshots.last7.revenue_cents)],
+        ["Orders Last 30 Days", summary.snapshots.last30.orders], ["Revenue Last 30 Days", money(summary.snapshots.last30.revenue_cents)],
+        ["Redemption Rate", `${Math.round((summary.period.redemption_rate || 0) * 100)}%`],
+      ],
+      sales: [
+        ["Revenue Today", money(summary.snapshots.today.revenue_cents)],
+        ["Revenue Last 7 Days", money(summary.snapshots.last7.revenue_cents)],
+        ["Revenue Last 30 Days", money(summary.snapshots.last30.revenue_cents)],
+        ["Orders Last 30 Days", summary.snapshots.last30.orders],
+      ],
+      customers: [
+        ["Orders Today", summary.snapshots.today.orders],
+        ["Orders Last 7 Days", summary.snapshots.last7.orders],
+        ["Orders Last 30 Days", summary.snapshots.last30.orders],
+        ["Redemption Rate", `${Math.round((summary.period.redemption_rate || 0) * 100)}%`],
+      ],
+    };
+    (metricSets[state.dashboardPreset] || metricSets.overview).forEach(([k, v]) => {
+      const c = document.createElement("div"); c.className = "card clickable";
+      c.append(Object.assign(document.createElement("div"), { className: "muted", textContent: k }), Object.assign(document.createElement("h3"), { textContent: String(v) }));
+      cards.appendChild(c);
+    });
     const p = document.createElement("div"); p.className = "card"; p.appendChild(Object.assign(document.createElement("h4"), { textContent: "Top 5 Products" }));
     (topProducts.products || []).forEach((x) => { const row = document.createElement("div"); row.className = "rank-row"; row.textContent = `${x.product_name} • ${x.quantity} units`; p.appendChild(row); });
     const c = document.createElement("div"); c.className = "card"; c.appendChild(Object.assign(document.createElement("h4"), { textContent: "Top 5 Customers" }));
@@ -341,9 +374,10 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#unlockBtn").onclick = async () => {
     try {
       const sec = $("#secret").value.trim();
-      const data = await safeFetchJson("/api/admin/unlock", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ secret: sec }) });
+      const username = $("#adminUsername")?.value.trim() || "admin";
+      const data = await safeFetchJson("/api/admin/unlock", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ secret: sec, username }) });
       if (!data.ok) throw new Error("Unlock failed");
-      setSecret(sec); setLocked(false); toast("Unlocked"); renderView();
+      setSecret(sec); setAdminUser(username); setLocked(false); toast(`Unlocked as ${username}`); renderView();
     } catch (e) { setLocked(true); toast(e.message, "error"); }
   };
   $("#refreshBtn").onclick = () => renderView();

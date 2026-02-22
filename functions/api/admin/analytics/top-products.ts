@@ -17,6 +17,7 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
       `SELECT id, cart_json
        FROM orders
        WHERE created_at >= ?
+         AND LOWER(COALESCE(status, '')) != 'cancelled'
        ORDER BY created_at DESC
        LIMIT 800`
     )

@@ -1,4 +1,4 @@
-import { json, requireAdmin } from "../_auth";
+import { json, requireAdmin, verifyAdminCredential } from "../_auth";
 
 const makeCookie = (secret: string) => `bb_admin_secret=${encodeURIComponent(secret)}; HttpOnly; Secure; SameSite=Lax; Path=/`;
 
@@ -15,7 +15,8 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
   }
 
   const secret = String(body?.secret || "").trim();
-  if (!env.ADMIN_SECRET || !secret || secret !== env.ADMIN_SECRET) {
+  const username = String(body?.username || "admin").trim() || "admin";
+  if (!verifyAdminCredential(env, secret, username)) {
     return json({ ok: false, error: "invalid" }, 401);
   }
 

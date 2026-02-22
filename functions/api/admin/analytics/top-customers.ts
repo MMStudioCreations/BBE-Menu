@@ -11,7 +11,11 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
   const range = (url.searchParams.get("range") || "all").toLowerCase();
   if (!["all", "30"].includes(range)) return json({ error: "Invalid range" }, 400);
 
-  const filterClause = range === "30" ? "WHERE o.created_at >= ?" : "";
+  const filterClause =
+    range === "30"
+      ? "WHERE o.created_at >= ? AND LOWER(COALESCE(o.status, '')) != 'cancelled'"
+      : "WHERE LOWER(COALESCE(o.status, '')) != 'cancelled'";
+
   const stmt = db.prepare(
     `SELECT
       COALESCE(o.user_id, o.customer_email, o.customer_phone, o.id) AS customer_key,
