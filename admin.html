@@ -3,341 +3,51 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Bobby Black — Admin CSM</title>
-  <style>
-    body { margin:0; background:#050505; color:#f1f1f1; font-family:Inter,system-ui,sans-serif; }
-    .wrap { max-width:1300px; margin:0 auto; padding:20px; }
-    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-    input,select,button,textarea { background:#101010; color:#fff; border:1px solid #463a18; border-radius:10px; padding:10px; }
-    button { cursor:pointer; }
-    .tab.active { border-color:#d4af37; color:#d4af37; }
-    .section { display:none; margin-top:12px; }
-    .section.active { display:block; }
-    .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; }
-    .card,.panel { background:#0c0c0c; border:1px solid #3d3214; border-radius:12px; padding:12px; }
-    .tableWrap { overflow:auto; border:1px solid #3d3214; border-radius:12px; margin-top:10px; }
-    table { width:100%; border-collapse:collapse; }
-    th,td { padding:8px; border-bottom:1px solid #282117; text-align:left; }
-    .pill { padding:2px 8px; border:1px solid #5b4a1f; border-radius:999px; font-size:12px; display:inline-block; }
-    #customerDetail,#orderDetail { margin-top:10px; }
-    .muted { color:#b8b8b8; }
-    .err { color:#ff9696; min-height:20px; margin:8px 0; }
-    .tags { display:flex; gap:6px; flex-wrap:wrap; }
-    .tag { border:1px solid #6b5724; border-radius:999px; padding:4px 8px; }
-      .tab.locked { opacity:.55; cursor:not-allowed; }
-  </style>
+  <title>Bobby Black — Admin Workspace</title>
+  <link rel="stylesheet" href="/admin/admin.css" />
   <script src="/admin/admin.js" defer></script>
 </head>
-<body><div class="wrap">
-  <h1>Admin Workspace</h1>
-  <div class="row">
-    <input id="secret" type="password" placeholder="ADMIN_SECRET" />
-    <button id="unlockBtn">Unlock</button>
-    <button id="refreshBtn">Refresh</button>
-    <span id="status" class="muted"></span>
+<body>
+  <div class="admin-app">
+    <aside class="sidebar">
+      <div>
+        <div class="logo">BBE</div>
+        <h1>Admin Workspace</h1>
+        <nav id="sidebarNav" class="nav"></nav>
+      </div>
+      <div class="sidebar-footer">
+        <span>Session:</span>
+        <strong id="lockIndicator">Locked</strong>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar panel">
+        <input id="globalSearch" type="search" placeholder="Search current view ( / )" />
+        <button id="refreshBtn" class="btn">Refresh</button>
+        <div class="unlock-wrap">
+          <input id="secret" type="password" placeholder="ADMIN_SECRET" />
+          <button id="unlockBtn" class="btn btn-gold">Unlock</button>
+          <span id="unlockStatus" class="muted">Locked</span>
+        </div>
+      </header>
+
+      <section id="viewContent" class="content panel"></section>
+    </main>
+
+    <aside id="drawer" class="drawer" aria-hidden="true">
+      <div class="drawer-head">
+        <h2 id="drawerTitle">Details</h2>
+        <div class="drawer-head-actions">
+          <button id="drawerMinimize" class="btn btn-small">Minimize</button>
+          <button id="drawerClose" class="btn btn-small">✕</button>
+        </div>
+      </div>
+      <div id="drawerBody" class="drawer-body"></div>
+      <div id="drawerActions" class="drawer-actions"></div>
+    </aside>
+    <button id="drawerTab" class="drawer-tab" hidden>Open Panel</button>
   </div>
-  <div id="msg" class="err"></div>
-
-  <div class="row" style="margin-top:10px;">
-    <button class="tab active locked" id="tabDashboard" disabled aria-disabled="true">Dashboard</button>
-    <button class="tab locked" id="tabCustomers" disabled aria-disabled="true">Customers</button>
-    <button class="tab locked" id="tabOrders" disabled aria-disabled="true">Orders</button>
-    <button class="tab locked" id="tabVerification" disabled aria-disabled="true">Verification</button>
-    <button class="tab locked" id="tabProducts" disabled aria-disabled="true">Products</button>
-  </div>
-
-  <section id="dashboard" class="section active"><div id="metrics" class="cards"></div></section>
-
-  <section id="customers" class="section">
-    <div class="row">
-      <input id="cQuery" placeholder="search email/name/phone" />
-      <select id="cStatus"><option value="all">All status</option><option>pending</option><option>approved</option><option>denied</option></select>
-      <select id="cTier"><option value="all">All tier</option><option>member</option><option>insider</option><option>elite</option><option>reserve</option></select>
-      <select id="cActive"><option value="">All active</option><option value="1">Active</option><option value="0">Deactivated</option></select>
-      <input id="cTag" placeholder="tag" />
-      <button id="cSearch">Search</button>
-    </div>
-    <div class="tableWrap"><table><thead><tr><th>Name</th><th>Email</th><th>Status</th><th>Active</th><th>Tier</th><th>Points</th><th></th></tr></thead><tbody id="cBody"></tbody></table></div>
-    <div id="customerDetail" class="panel" style="display:none;"></div>
-  </section>
-
-  <section id="orders" class="section">
-    <div class="row"><input id="oQuery" placeholder="order id/email/phone/name" /><button id="oSearch">Search</button></div>
-    <div class="tableWrap"><table><thead><tr><th>ID</th><th>Date</th><th>Status</th><th>Total</th><th>Type</th><th>Customer</th><th></th></tr></thead><tbody id="oBody"></tbody></table></div>
-    <div id="orderDetail" class="panel" style="display:none;"></div>
-  </section>
-
-  <section id="verification" class="section"><div id="vList" class="cards"></div></section>
-
-  <section id="products" class="section">
-    <div class="row">
-      <input id="pQuery" placeholder="search name/brand/category" />
-      <input id="pCategory" placeholder="category" />
-      <input id="pBrand" placeholder="brand" />
-      <select id="pPublished"><option value="">All published</option><option value="1">Published</option><option value="0">Unpublished</option></select>
-      <button id="pSearch">Search</button>
-      <button id="pNew">New Product</button>
-      <button id="pImport">Import from Content JSON</button>
-    </div>
-    <div class="tableWrap"><table><thead><tr><th>Image</th><th>Name</th><th>Brand</th><th>Category</th><th>Published</th><th>Variants</th><th>Total inventory</th><th></th></tr></thead><tbody id="pBody"></tbody></table></div>
-    <div id="pEditor" class="panel" style="display:none;"></div>
-  </section>
-</div>
-<script>
-const $ = (s)=>document.querySelector(s); const msg=$('#msg'); const statusEl=$('#status');
-let currentCustomer=null;
-let currentProduct=null;
-const getSecret=()=>sessionStorage.getItem('bb_admin_secret')||''; const setSecret=v=>sessionStorage.setItem('bb_admin_secret',v);
-async function api(path,opts={}){const secret=getSecret(); const h=Object.assign({},opts.headers||{}, secret?{'x-admin-secret':secret}:{}); const r=await fetch(path,Object.assign({},opts,{headers:h,credentials:'include'})); const t=await r.text(); let j={}; try{j=JSON.parse(t)}catch{} if(!r.ok)throw new Error((j.error||t||r.statusText)); return j;}
-function showTab(name){['dashboard','customers','orders','verification','products'].forEach(id=>$('#'+id).classList.toggle('active',id===name)); ['Dashboard','Customers','Orders','Verification','Products'].forEach(n=>$('#tab'+n).classList.toggle('active',n.toLowerCase()===name));}
-function fmt(d){if(!d)return '-'; return new Date(d).toLocaleString();}
-function cents(v){return '$'+((Number(v||0))/100).toFixed(2)}
-const esc = (v)=>String(v||'').replace(/[&<>"]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
-
-async function loadDashboard(){const d=await api('/api/admin/dashboard'); const m=d.metrics||{}; $('#metrics').innerHTML=`<div class=card><h3>Total Users</h3>${m.totalUsers||0}</div><div class=card><h3>Active Users</h3>${m.activeUsers||0}</div><div class=card><h3>Orders (7d)</h3>${m.ordersLast7Days||0}</div><div class=card><h3>Pending Verification</h3>${m.pendingVerification||0}</div>`;}
-async function loadCustomers(){const qs=new URLSearchParams({query:$('#cQuery').value||'',status:$('#cStatus').value||'',tier:$('#cTier').value||'',active:$('#cActive').value||'',tag:$('#cTag').value||'',limit:'100'}); const d=await api('/api/admin/customers?'+qs.toString()); const rows=d.customers||[]; statusEl.textContent=`Customers: ${rows.length}`; $('#cBody').innerHTML=''; rows.forEach(u=>{const tr=document.createElement('tr'); tr.innerHTML=`<td>${(u.first_name||'')} ${(u.last_name||'')}</td><td>${u.email||''}</td><td>${u.account_status}</td><td>${Number(u.is_active)===1?'Active':'Deactivated'}</td><td>${u.effectiveTier}</td><td>${u.points_balance||0}</td><td><button>Open</button></td>`; tr.querySelector('button').onclick=()=>openCustomer(u.id); $('#cBody').appendChild(tr);});}
-async function openCustomer(id){const d=await api('/api/admin/customers/'+id); currentCustomer=d.customer; const tags=d.tags||[]; const orders=await api('/api/admin/orders?query='+encodeURIComponent(id)); const userOrders=(orders.orders||[]).filter(o=>o.user_id===id);
-$('#customerDetail').style.display='block'; $('#customerDetail').innerHTML=`<h3>Customer Detail</h3>
-<div class=row><input id=first value="${currentCustomer.first_name||''}" placeholder="first name"><input id=last value="${currentCustomer.last_name||''}" placeholder="last name"><input id=phone value="${currentCustomer.phone||''}" placeholder="phone"><button id=saveProfile>Save Profile</button></div>
-<p>Email: <b>${currentCustomer.email}</b> · <span class=pill>${Number(currentCustomer.is_active)===1?'Active':'Deactivated'}</span></p>
-<div class=row><button id=approve>Approve</button><button id=deny>Deny</button><button id=pending>Pending</button></div>
-<p>Points: ${currentCustomer.points_balance} · Lifetime Spend: ${cents(currentCustomer.lifetime_spend_cents)} · Effective Tier: ${currentCustomer.effectiveTier}</p>
-<div class=row><select id=tierOverride><option value=''>Clear override</option><option>member</option><option>insider</option><option>elite</option><option>reserve</option></select><input id=tierReason placeholder='override reason'><button id=saveTier>Save Tier Override</button></div>
-<div><h4>Tags</h4><div class=tags>${tags.map(t=>`<span class=tag>${t} <button data-tag="${t}" class=delTag>x</button></span>`).join('')}</div><div class=row><input id=newTag placeholder='add tag'><button id=addTag>Add Tag</button></div></div>
-<div><h4>Orders</h4>${userOrders.length?'<pre style="white-space:pre-wrap">'+JSON.stringify(userOrders,null,2)+'</pre>':'<div class=muted>No user orders</div>'}</div>
-<div><h4>Actions</h4><div class=row><button id=deactivate>Deactivate</button><button id=reactivate>Reactivate</button></div>
-<div style='margin-top:8px;border:1px solid #5b1f1f;padding:8px;border-radius:8px;'><b>Danger Zone</b><div class=row><input id=confirmEmail placeholder='confirm email'><label><input id=anonymize type=checkbox> anonymize orders</label><button id=hardDelete>Hard Delete</button></div></div></div>`;
-$('#tierOverride').value=currentCustomer.tier_override||'';
-$('#saveProfile').onclick=()=>api('/api/admin/customers/'+id,{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({first_name:$('#first').value,last_name:$('#last').value,phone:$('#phone').value})}).then(()=>openCustomer(id));
-$('#approve').onclick=()=>api('/api/admin/customers/'+id+'/status',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({account_status:'approved'})}).then(()=>openCustomer(id));
-$('#deny').onclick=()=>api('/api/admin/customers/'+id+'/status',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({account_status:'denied',status_reason:prompt('Reason')||''})}).then(()=>openCustomer(id));
-$('#pending').onclick=()=>api('/api/admin/customers/'+id+'/status',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({account_status:'pending'})}).then(()=>openCustomer(id));
-$('#saveTier').onclick=()=>api('/api/admin/customers/'+id+'/tier',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({tier_override:$('#tierOverride').value||null,reason:$('#tierReason').value||''})}).then(()=>openCustomer(id));
-$('#addTag').onclick=()=>api('/api/admin/customers/'+id+'/tags',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({tag:$('#newTag').value})}).then(()=>openCustomer(id));
-document.querySelectorAll('.delTag').forEach(b=>b.onclick=()=>api('/api/admin/customers/'+id+'/tags/'+encodeURIComponent(b.dataset.tag),{method:'DELETE'}).then(()=>openCustomer(id)));
-$('#deactivate').onclick=()=>api('/api/admin/customers/'+id+'/deactivate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({reason:prompt('Reason optional')||''})}).then(()=>openCustomer(id));
-$('#reactivate').onclick=()=>api('/api/admin/customers/'+id+'/reactivate',{method:'POST'}).then(()=>openCustomer(id));
-$('#hardDelete').onclick=()=>api('/api/admin/customers/'+id,{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({confirmEmail:$('#confirmEmail').value,anonymizeOrders:$('#anonymize').checked})}).then(()=>{$('#customerDetail').style.display='none';loadCustomers();});
-}
-async function loadOrders(){const d=await api('/api/admin/orders?query='+encodeURIComponent($('#oQuery').value||'')); const rows=d.orders||[]; $('#oBody').innerHTML=''; rows.forEach(o=>{const tr=document.createElement('tr'); tr.innerHTML=`<td>${o.id}</td><td>${fmt(o.created_at)}</td><td>${o.status}</td><td>${cents(o.total_cents)}</td><td>${o.user_id?'Account':'Guest'}</td><td>${o.customer_name||o.customer_email||'-'}</td><td><button>Open</button></td>`; tr.querySelector('button').onclick=()=>openOrder(o.id); $('#oBody').appendChild(tr);});}
-async function openOrder(id){const d=await api('/api/admin/orders/'+id); $('#orderDetail').style.display='block'; $('#orderDetail').innerHTML='<h3>Order '+id+'</h3><pre style="white-space:pre-wrap">'+JSON.stringify(d.order,null,2)+'</pre>';}
-async function loadVerification(){const d=await api('/api/admin/verification/pending'); const users=d.users||[]; $('#vList').innerHTML=users.length?users.map(u=>`<div class=card><h3>${u.first_name||''} ${u.last_name||''}</h3><div>${u.email||''}</div><button onclick="openCustomer('${u.id.replace(/'/g,"\\'")}');showTab('customers')">Review</button></div>`).join(''):'<div class=muted>No pending users.</div>';}
-
-async function loadProducts(){
-  const qs=new URLSearchParams({query:$('#pQuery').value||'',category:$('#pCategory').value||'',brand:$('#pBrand').value||'',published:$('#pPublished').value||'',limit:'100'});
-  const d=await api('/api/admin/products?'+qs.toString());
-  const rows=d.products||[];
-  statusEl.textContent=`Products: ${rows.length}`;
-  $('#pBody').innerHTML='';
-  rows.forEach(p=>{const tr=document.createElement('tr'); tr.innerHTML=`<td>${p.image_path?`<img src="${esc(p.image_path)}" alt="${esc(p.name)}" style="width:44px;height:44px;object-fit:cover;border-radius:8px">`:'-'}</td><td>${esc(p.name)}</td><td>${esc(p.brand)}</td><td>${esc(p.category)}${p.subcategory?` / ${esc(p.subcategory)}`:''}</td><td>${Number(p.is_published)===1?'Yes':'No'}</td><td>${p.variant_count||0}</td><td>${p.total_inventory||0}</td><td><button>Edit</button></td>`; tr.querySelector('button').onclick=()=>openProductEditor(p.id); $('#pBody').appendChild(tr);});
-}
-
-async function openProductEditor(id){
-  const d=await api('/api/admin/products/'+id);
-  const product=d.product||null;
-  if(!product){msg.textContent='Product not found'; return;}
-  currentProduct=product;
-  const variants=d.variants||[];
-  $('#pEditor').style.display='block';
-  $('#pEditor').innerHTML=`<h3>Edit Product</h3>
-  <div class=row><input id=pn placeholder='name' value="${esc(product.name)}"><input id=ps placeholder='slug' value="${esc(product.slug)}"><input id=pb placeholder='brand' value="${esc(product.brand)}"></div>
-  <div class=row><input id=pc placeholder='category' value="${esc(product.category)}"><input id=psc placeholder='subcategory' value="${esc(product.subcategory||'')}"><input id=pi placeholder='image_path (/images/...)' value="${esc(product.image_path||'')}"></div>
-  <textarea id=pd placeholder='description' style='width:100%;min-height:80px;'>${esc(product.description||'')}</textarea>
-  <div class=row><input id=pe placeholder='effects comma separated' value="${esc((product.effects||[]).join(', '))}"><label><input id=ppub type=checkbox ${Number(product.is_published)===1?'checked':''}> Published</label><label><input id=pfeat type=checkbox ${Number(product.is_featured)===1?'checked':''}> Featured</label><button id=psave>Save Product</button></div>
-  <h4>Variants</h4>
-  <div id=variantRows>${variants.map(v=>`<div class='row' data-id='${v.id}'><input data-field='label' value="${esc(v.label)}"><input data-field='price_cents' type='number' min='0' value='${Number(v.price_cents)||0}'><input data-field='sort_order' type='number' value='${Number(v.sort_order)||0}'><input data-field='low_stock_threshold' type='number' min='0' value='${v.low_stock_threshold??''}'><label><input data-field='is_active' type='checkbox' ${Number(v.is_active)===1?'checked':''}>Active</label><span>Inv: ${v.inventory_qty||0}</span><button data-action='save'>Save</button><button data-action='up'>↑</button><button data-action='down'>↓</button><button data-action='set'>Set Qty</button><button data-action='adj'>Adjust</button></div>`).join('')}</div>
-  <div class='row'><input id=nvlabel placeholder='variant label'><input id=nvprice type='number' min='0' placeholder='price cents'><input id=nvinv type='number' min='0' placeholder='inventory'><button id=nvadd>Add Variant</button></div>`;
-
-  $('#psave').onclick=async()=>{
-    if($('#pi').value && !$('#pi').value.startsWith('/images/')) throw new Error('image_path must start with /images/');
-    await api('/api/admin/products/'+product.id,{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({name:$('#pn').value,slug:$('#ps').value,brand:$('#pb').value,category:$('#pc').value,subcategory:$('#psc').value,description:$('#pd').value,effects:$('#pe').value.split(',').map(s=>s.trim()).filter(Boolean),image_path:$('#pi').value,is_published:$('#ppub').checked,is_featured:$('#pfeat').checked})});
-    await loadProducts();
-    await openProductEditor(product.id);
-  };
-
-  document.querySelectorAll('#variantRows .row').forEach(row=>{row.querySelectorAll('button').forEach(btn=>btn.onclick=async()=>{const variantId=row.dataset.id; const label=row.querySelector('[data-field="label"]').value; const price=Number(row.querySelector('[data-field="price_cents"]').value); if(!label) throw new Error('Variant label required'); if(price<0) throw new Error('Price must be >= 0'); const payload={label,price_cents:price,sort_order:Number(row.querySelector('[data-field="sort_order"]').value||0),low_stock_threshold:row.querySelector('[data-field="low_stock_threshold"]').value===''?null:Number(row.querySelector('[data-field="low_stock_threshold"]').value),is_active:row.querySelector('[data-field="is_active"]').checked}; const action=btn.dataset.action; if(action==='save') await api('/api/admin/variants/'+variantId,{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(payload)}); if(action==='up'||action==='down'){payload.sort_order += action==='up'?-1:1; await api('/api/admin/variants/'+variantId,{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});} if(action==='set'){const qty=Number(prompt('Set inventory qty', '0')||0); await api('/api/admin/variants/'+variantId+'/inventory',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mode:'set',qty,reason:'admin set'})});} if(action==='adj'){const qty=Number(prompt('Adjust inventory (+/-)', '1')||0); const reason=prompt('Reason', 'manual adjustment')||''; await api('/api/admin/variants/'+variantId+'/inventory',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mode:'adjust',qty,reason})});} await openProductEditor(product.id);});});
-
-  $('#nvadd').onclick=async()=>{const label=$('#nvlabel').value.trim(); const price=Number($('#nvprice').value||0); if(!label) throw new Error('Variant label required'); if(price<0) throw new Error('Price must be >= 0'); await api('/api/admin/products/'+product.id+'/variants',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({label,price_cents:price,inventory_qty:Number($('#nvinv').value||0)})}); await openProductEditor(product.id); await loadProducts();};
-}
-
-async function createProduct(){
-  const name=prompt('Product name'); if(!name) return;
-  const brand=prompt('Brand','Bobby Black Exclusive')||'';
-  const category=prompt('Category','Flower')||'';
-  await api('/api/admin/products',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name,brand,category,is_published:true})});
-  await loadProducts();
-}
-
-async function importProductsFromContent(){
-  const confirmed=confirm('Import products from content/products.json into D1? Existing products and variants will be upserted; inventory is not reset.');
-  if(!confirmed) return;
-  const result=await api('/api/admin/products/import-content',{method:'POST'});
-  const summary=[
-    `Products inserted: ${result.productsInserted||0}`,
-    `Products updated: ${result.productsUpdated||0}`,
-    `Variants inserted: ${result.variantsInserted||0}`,
-    `Variants updated: ${result.variantsUpdated||0}`,
-    `Skipped: ${result.skipped||0}`,
-    `Errors: ${Array.isArray(result.errors)?result.errors.length:0}`
-  ].join('\n');
-  alert('Import complete.\n\n'+summary);
-  if(Array.isArray(result.errors)&&result.errors.length){
-    console.error('Import errors',result.errors);
-  }
-  await loadProducts();
-}
-
-
-
-let selectedCustomerId='';
-let selectedOrderId='';
-let selectedProductId='';
-
-function textCell(tr, text){ const td=document.createElement('td'); td.textContent=text==null?'':String(text); tr.appendChild(td); return td; }
-function setPanelMinimize(panelId){
-  const panel = document.getElementById(panelId);
-  if (!panel) return;
-  const btn = panel.querySelector('[data-role="minimize"]');
-  if (btn) {
-    btn.onclick = () => { panel.style.display='none'; };
-  }
-}
-
-const _loadCustomers = loadCustomers;
-loadCustomers = async function(){
-  const qs=new URLSearchParams({query:$('#cQuery').value||'',status:$('#cStatus').value||'',tier:$('#cTier').value||'',active:$('#cActive').value||'',tag:$('#cTag').value||'',limit:'100'});
-  const d=await api('/api/admin/customers?'+qs.toString());
-  const rows=d.customers||[];
-  statusEl.textContent=`Customers: ${rows.length}`;
-  const body=$('#cBody'); body.innerHTML='';
-  rows.forEach((u)=>{
-    const tr=document.createElement('tr');
-    tr.dataset.customerId = u.id;
-    if (u.id===selectedCustomerId) tr.style.outline='1px solid #d4af37';
-    textCell(tr, `${u.first_name||''} ${u.last_name||''}`.trim());
-    textCell(tr, u.email||'');
-    textCell(tr, u.account_status||'');
-    textCell(tr, Number(u.is_active)===1?'Active':'Deactivated');
-    textCell(tr, u.effectiveTier||'');
-    textCell(tr, String(u.points_balance||0));
-    const td=document.createElement('td');
-    const btn=document.createElement('button'); btn.textContent='Open'; btn.onclick=()=>openCustomer(u.id); td.appendChild(btn); tr.appendChild(td);
-    body.appendChild(tr);
-  });
-};
-
-const _openCustomer = openCustomer;
-openCustomer = async function(id){
-  selectedCustomerId = id;
-  const existingModal=document.getElementById('pointsAdjustModal'); if(existingModal) existingModal.remove();
-  await _openCustomer(id);
-  const panel=$('#customerDetail');
-  const title=panel.querySelector('h3');
-  if (title && !panel.querySelector('[data-role="minimize"]')){
-    const row=document.createElement('div'); row.className='row';
-    const btn=document.createElement('button'); btn.dataset.role='minimize'; btn.textContent='Minimize';
-    row.appendChild(btn); panel.insertBefore(row, panel.firstChild);
-  }
-  const adjustRow=document.createElement('div');
-  adjustRow.className='row';
-  adjustRow.innerHTML="<button id='openAdjustPoints'>Adjust Points</button>";
-  const pointsLine = Array.from(panel.querySelectorAll('p')).find((el)=>el.textContent.startsWith('Points:'));
-  if (pointsLine) pointsLine.insertAdjacentElement('afterend', adjustRow); else panel.appendChild(adjustRow);
-  const modal=document.createElement('div');
-  modal.id='pointsAdjustModal';
-  modal.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center;';
-  modal.innerHTML="<div class='panel' style='max-width:420px;width:100%'><h3>Adjust Points</h3><div class='row'><input id='pointsDeltaInput' type='number' step='1' placeholder='Points delta (e.g. -20 or 50)'></div><div class='row'><input id='pointsReasonInput' placeholder='Reason (required)'></div><div class='row'><button id='submitPointsAdjust'>Apply</button><button id='cancelPointsAdjust'>Cancel</button></div><div id='pointsAdjustStatus' class='muted'></div></div>";
-  document.body.appendChild(modal);
-  document.getElementById('openAdjustPoints').onclick=()=>{ modal.style.display='flex'; };
-  document.getElementById('cancelPointsAdjust').onclick=()=>{ modal.remove(); };
-  document.getElementById('submitPointsAdjust').onclick=async()=>{
-    const points_delta = Number(document.getElementById('pointsDeltaInput').value||'0');
-    const reason = String(document.getElementById('pointsReasonInput').value||'').trim();
-    const status = document.getElementById('pointsAdjustStatus');
-    if (!Number.isInteger(points_delta)){ status.textContent='Points delta must be an integer.'; return; }
-    if (!reason){ status.textContent='Reason is required.'; return; }
-    const result = await api('/api/admin/customers/'+id+'/points-adjust',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({points_delta,reason})});
-    currentCustomer = result.customer || currentCustomer;
-    modal.remove();
-    await openCustomer(id);
-    await loadCustomers();
-  };
-  setPanelMinimize('customerDetail');
-};
-
-loadOrders = async function(){
-  const d=await api('/api/admin/orders?query='+encodeURIComponent($('#oQuery').value||''));
-  const rows=d.orders||[];
-  const body=$('#oBody'); body.innerHTML='';
-  rows.forEach((o)=>{
-    const tr=document.createElement('tr');
-    tr.dataset.orderId=o.id;
-    if (o.id===selectedOrderId) tr.style.outline='1px solid #d4af37';
-    textCell(tr,o.id); textCell(tr,fmt(o.created_at)); textCell(tr,o.status); textCell(tr,cents(o.total_cents));
-    textCell(tr,o.user_id?'Account':'Guest'); textCell(tr,o.customer_name||o.customer_email||'-');
-    const td=document.createElement('td'); const btn=document.createElement('button'); btn.textContent='Open'; btn.onclick=()=>openOrder(o.id); td.appendChild(btn); tr.appendChild(td);
-    body.appendChild(tr);
-  });
-};
-
-openOrder = async function(id){
-  selectedOrderId = id;
-  const d=await api('/api/admin/orders/'+id);
-  const order=d.order||{};
-  const panel=$('#orderDetail');
-  panel.style.display='block';
-  panel.innerHTML='';
-  const top=document.createElement('div'); top.className='row';
-  const h3=document.createElement('h3'); h3.textContent='Order '+id; top.appendChild(h3);
-  const minBtn=document.createElement('button'); minBtn.dataset.role='minimize'; minBtn.textContent='Minimize'; top.appendChild(minBtn);
-  panel.appendChild(top);
-  const summary=document.createElement('p');
-  summary.textContent=`Created: ${fmt(order.created_at)} | Status: ${order.status || '-'} | Subtotal: ${cents(order.subtotal_cents)} | Total: ${cents(order.total_cents)} | Points Earned: ${order.points_earned || 0} | Points Redeemed: ${order.points_redeemed || 0}`;
-  panel.appendChild(summary);
-  const customer=document.createElement('p');
-  customer.textContent=`Customer: ${order.customer_name || '-'} | Phone: ${order.customer_phone || '-'} | Email: ${order.customer_email || '-'}`;
-  panel.appendChild(customer);
-  const itemsTitle=document.createElement('h4'); itemsTitle.textContent='Items'; panel.appendChild(itemsTitle);
-  const pre=document.createElement('pre'); pre.style.whiteSpace='pre-wrap';
-  let parsed = order.cart_json;
-  try { parsed = typeof order.cart_json === 'string' ? JSON.parse(order.cart_json) : order.cart_json; } catch {}
-  pre.textContent=JSON.stringify(parsed ?? order.cart_json ?? {}, null, 2);
-  panel.appendChild(pre);
-  setPanelMinimize('orderDetail');
-};
-
-const _openProductEditor=openProductEditor;
-openProductEditor = async function(id){
-  selectedProductId=id;
-  await _openProductEditor(id);
-  const panel=$('#pEditor');
-  if (panel.style.display==='none') return;
-  const row=document.createElement('div'); row.className='row';
-  const btn=document.createElement('button'); btn.dataset.role='minimize'; btn.textContent='Minimize';
-  row.appendChild(btn); panel.insertBefore(row,panel.firstChild);
-  setPanelMinimize('pEditor');
-};
-
-loadProducts = async function(){
-  const qs=new URLSearchParams({query:$('#pQuery').value||'',category:$('#pCategory').value||'',brand:$('#pBrand').value||'',published:$('#pPublished').value||'',limit:'100'});
-  const d=await api('/api/admin/products?'+qs.toString());
-  const rows=d.products||[];
-  statusEl.textContent=`Products: ${rows.length}`;
-  $('#pBody').innerHTML='';
-  rows.forEach(p=>{const tr=document.createElement('tr'); if(p.id===selectedProductId) tr.style.outline='1px solid #d4af37'; tr.innerHTML=`<td>${p.image_path?`<img src="${esc(p.image_path)}" alt="${esc(p.name)}" style="width:44px;height:44px;object-fit:cover;border-radius:8px">`:'-'}</td><td>${esc(p.name)}</td><td>${esc(p.brand)}</td><td>${esc(p.category)}${p.subcategory?` / ${esc(p.subcategory)}`:''}</td><td>${Number(p.is_published)===1?'Yes':'No'}</td><td>${p.variant_count||0}</td><td>${p.total_inventory||0}</td><td><button>Edit</button></td>`; tr.querySelector('button').onclick=()=>openProductEditor(p.id); $('#pBody').appendChild(tr);});
-};
-
-$('#refreshBtn').onclick=()=>refresh().catch(e=>msg.textContent=e.message);
-$('#cSearch').onclick=()=>loadCustomers().catch(e=>msg.textContent=e.message); $('#oSearch').onclick=()=>loadOrders().catch(e=>msg.textContent=e.message);
-$('#tabDashboard').onclick=()=>{showTab('dashboard');loadDashboard().catch(e=>msg.textContent=e.message)};
-$('#tabCustomers').onclick=()=>{showTab('customers');loadCustomers().catch(e=>msg.textContent=e.message)};
-$('#tabOrders').onclick=()=>{showTab('orders');loadOrders().catch(e=>msg.textContent=e.message)};
-$('#tabVerification').onclick=()=>{showTab('verification');loadVerification().catch(e=>msg.textContent=e.message)};
-$('#tabProducts').onclick=()=>{showTab('products');loadProducts().catch(e=>msg.textContent=e.message)};
-$('#pSearch').onclick=()=>loadProducts().catch(e=>msg.textContent=e.message);
-$('#pNew').onclick=()=>createProduct().catch(e=>msg.textContent=e.message);
-$('#pImport').onclick=()=>importProductsFromContent().catch(e=>msg.textContent=e.message);
-async function refresh(){const active=document.querySelector('.section.active').id; if(active==='dashboard') await loadDashboard(); if(active==='customers') await loadCustomers(); if(active==='orders') await loadOrders(); if(active==='verification') await loadVerification(); if(active==='products') await loadProducts();}
-window.addEventListener('DOMContentLoaded',()=>{const s=getSecret(); if(s){$('#secret').value=s; refresh().catch(()=>{});}});
-</script>
-</body></html>
+  <div id="toastRoot" class="toast-root"></div>
+</body>
+</html>
