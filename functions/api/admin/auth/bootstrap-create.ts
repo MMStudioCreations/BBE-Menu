@@ -1,38 +1,34 @@
 import { hashPassword, uuid } from "../../auth/_utils";
-import { adminAuthJson, ensureAdminSessionSchema, getErrorMessage } from "./_helpers";
+import { adminAuthJson, ensureAdminSessionSchema, ensureAdminUserSchema, getErrorMessage } from "./_helpers";
 
 export const onRequestPost: PagesFunction = async ({ request, env }) => {
   try {
     const db = env.DB as D1Database;
     await ensureAdminSessionSchema(db);
+    await ensureAdminUserSchema(db);
     const body = await request.json<any>().catch(() => null);
     const secret = String(body?.secret || "").trim();
-    const email = String(body?.email || env.OWNER_EMAIL || "").trim().toLowerCase();
-    const password = String(body?.password || env.OWNER_PASSWORD || "");
-    const name = String(body?.name || env.OWNER_NAME || "").trim();
+    const email = String(body?.email || "").trim().toLowerCase();
+    const password = String(body?.password || "");
+    const name = String(body?.name || "").trim();
+    const ownerEmail = String(env.OWNER_EMAIL || "").trim().toLowerCase();
 
     if (!env.ADMIN_BOOTSTRAP_SECRET || secret !== String(env.ADMIN_BOOTSTRAP_SECRET)) {
       return adminAuthJson({ ok: false, error: "invalid_secret" }, 403);
     }
 
-    if (!email || !password || password.length < 8) {
+    if (!ownerEmail || email !== ownerEmail || !password || password.length < 8) {
       return adminAuthJson({ ok: false, error: "invalid_payload" }, 400);
     }
 
-    const now = new Date().toISOString();
-    const existing = await db.prepare("SELECT id FROM admin_users WHERE lower(email)=lower(?)").bind(email).first<{ id: string }>();
+    const count = await db.prepare("SELECT COUNT(*) AS c FROM admin_users").first<any>();
+    if (Number(count?.c || 0) > 0) return adminAuthJson({ ok: false, error: "bootstrap_disabled" }, 409);
 
-    if (existing) {
-      await db
-        .prepare("UPDATE admin_users SET name=?, password_hash=?, is_active=1, is_super_admin=1, updated_at=? WHERE id=?")
-        .bind(name || null, await hashPassword(password), now, existing.id)
-        .run();
-    } else {
-      await db
-        .prepare("INSERT INTO admin_users (id, email, name, password_hash, is_active, is_super_admin, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 1, ?, ?)")
-        .bind(uuid(), email, name || null, await hashPassword(password), now, now)
-        .run();
-    }
+    const now = new Date().toISOString();
+    await db
+      .prepare("INSERT INTO admin_users (id, email, name, password_hash, role, is_active, is_super_admin, created_at, updated_at) VALUES (?, ?, ?, ?, 'super_admin', 1, 1, ?, ?)")
+      .bind(uuid(), email, name || "", await hashPassword(password), now, now)
+      .run();
 
     return adminAuthJson({ ok: true }, 200);
   } catch (err) {
@@ -44,6 +40,7 @@ export const onRequestGet: PagesFunction = async ({ env }) => {
   try {
     const db = env.DB as D1Database;
     await ensureAdminSessionSchema(db);
+    await ensureAdminUserSchema(db);
     const row = await db.prepare("SELECT COUNT(*) AS count FROM admin_users").first<any>();
     return adminAuthJson({ ok: true, needs_bootstrap: Number(row?.count || 0) === 0 }, 200);
   } catch (err) {

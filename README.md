@@ -142,3 +142,7 @@ You can also continue using `/api/admin/auth/bootstrap-create` for compatibility
 - `top_customers`: ranked by **completed-only** lifetime spend plus points balance.
 
 This ensures cancelled orders are excluded from completed revenue/lifetime spend reporting.
+
+
+## Admin Workspace v2 migration
+Run migrations normally (no extra manual steps). The new `migrations/0011_admin_workspace_v2.sql` adds role-aware admin users, saved views, daily metrics, and supporting indexes.

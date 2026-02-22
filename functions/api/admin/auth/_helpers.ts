@@ -48,3 +48,18 @@ export async function ensureAdminSessionSchema(db: D1Database) {
     }
   }
 }
+
+
+export async function ensureAdminUserSchema(db: D1Database) {
+  const pragmaRows = await db.prepare("PRAGMA table_info(admin_users)").all<SessionColumn>();
+  const columns = new Set((pragmaRows.results || []).map((row) => String(row.name || "")).filter(Boolean));
+  if (!columns.has("role")) {
+    try {
+      await db.prepare("ALTER TABLE admin_users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'").run();
+      await db.prepare("UPDATE admin_users SET role = CASE WHEN COALESCE(is_super_admin,0)=1 THEN 'super_admin' ELSE 'admin' END WHERE role IS NULL OR role = ''").run();
+    } catch (err) {
+      const msg = getErrorMessage(err).toLowerCase();
+      if (!msg.includes("duplicate column")) throw err;
+    }
+  }
+}

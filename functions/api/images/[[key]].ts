@@ -1,7 +1,7 @@
 import { json } from "../_auth";
 
 export const onRequestGet: PagesFunction = async ({ params, env }) => {
-  const bucket = env.R2_IMAGES as R2Bucket | undefined;
+  const bucket = (env.R2 || env.R2_IMAGES) as R2Bucket | undefined;
   if (!bucket) return json({ error: "no_r2_configured" }, 404);
 
   const key = decodeURIComponent(String((params as any).key || "").trim());

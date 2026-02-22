@@ -5,7 +5,7 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
   const auth = await requireAdminRequest(request, env);
   if (!auth.ok) return auth.response;
 
-  const bucket = env.R2_IMAGES as R2Bucket | undefined;
+  const bucket = (env.R2 || env.R2_IMAGES) as R2Bucket | undefined;
   if (!bucket) return json({ ok: false, error: "no_r2_configured" }, 400);
 
   const form = await request.formData();

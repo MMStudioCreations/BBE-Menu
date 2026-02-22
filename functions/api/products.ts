@@ -23,6 +23,8 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
   if (featuredParam === "1") {
     where.push("p.is_featured = ?");
     binds.push(1);
+    where.push("LOWER(p.category) = LOWER(?)");
+    binds.push("Flower");
   }
 
   if (publishedParam === "0" || publishedParam === "1") {
@@ -69,7 +71,7 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
       LEFT JOIN product_variants v ON v.product_id = p.id
       WHERE ${where.join(" AND ")}
       GROUP BY p.id
-      ORDER BY p.updated_at DESC
+      ORDER BY CASE WHEN p.featured_rank IS NULL THEN 1 ELSE 0 END ASC, p.featured_rank ASC, p.updated_at DESC, p.name ASC
       LIMIT ?`
     )
     .bind(...binds, limit)

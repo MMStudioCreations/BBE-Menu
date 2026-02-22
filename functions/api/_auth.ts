@@ -48,11 +48,15 @@ export type AdminAuthInfo = {
   id: string;
   email: string;
   name: string | null;
+  role: "super_admin" | "admin" | "staff";
   is_super_admin: number;
 };
 
 async function getAdminSession(request: Request, env: any): Promise<AdminAuthInfo | null> {
-  const sessionId = getCookie(request, "bb_session") || getCookie(request, "bbe_admin_session");
+  const sessionId =
+    getCookie(request, "bb_admin_session") ||
+    getCookie(request, "bbe_admin_session") ||
+    getCookie(request, "bb_session");
   if (!sessionId) return null;
 
   const db = env.DB as D1Database;
@@ -65,17 +69,22 @@ async function getAdminSession(request: Request, env: any): Promise<AdminAuthInf
   if (Date.parse(String(session.expires_at || "")) < Date.now()) return null;
 
   const admin = await db
-    .prepare("SELECT id, email, name, COALESCE(is_super_admin, 0) AS is_super_admin, COALESCE(is_active, 1) AS is_active FROM admin_users WHERE id = ?")
+    .prepare("SELECT id, email, name, COALESCE(role, CASE WHEN COALESCE(is_super_admin,0)=1 THEN 'super_admin' ELSE 'admin' END) AS role, COALESCE(is_super_admin, 0) AS is_super_admin, COALESCE(is_active, 1) AS is_active FROM admin_users WHERE id = ?")
     .bind(session.admin_user_id)
     .first<any>();
 
   if (!admin || Number(admin.is_active) !== 1) return null;
 
+  const role = String(admin.role || "admin").toLowerCase();
+  const normalizedRole = (role === "super_admin" || role === "staff") ? role : "admin";
+  const isSuperAdmin = normalizedRole === "super_admin" || Number(admin.is_super_admin || 0) === 1;
+
   return {
     id: String(admin.id),
     email: String(admin.email),
     name: admin.name ? String(admin.name) : null,
-    is_super_admin: Number(admin.is_super_admin || 0),
+    role: isSuperAdmin ? "super_admin" : (normalizedRole as "admin" | "staff"),
+    is_super_admin: isSuperAdmin ? 1 : 0,
   };
 }
 

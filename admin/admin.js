@@ -1,5 +1,5 @@
 const $ = (s) => document.querySelector(s);
-const state = { admin: null, needsBootstrap: false, panel: "dashboard" };
+const state = { admin: null, needsBootstrap: false, panel: "dashboard", views: [] };
 
 const navItems = [
   ["dashboard", "Dashboard"],
@@ -38,7 +38,7 @@ function renderAuth() {
   if (state.admin) {
     root.hidden = true;
     setWorkspaceVisible(true);
-    $("#adminIdentity").textContent = `${state.admin.name || state.admin.email}${state.admin.is_super_admin ? " (Super Admin)" : ""}`;
+    $("#adminIdentity").textContent = `${state.admin.name || state.admin.email} (${state.admin.role})`;
     return renderApp();
   }
 
@@ -50,7 +50,7 @@ function renderAuth() {
   $("#loginBtn").onclick = async () => {
     try {
       const d = await api("/api/admin/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: $("#loginEmail").value, password: $("#loginPassword").value }) });
-      state.admin = d.admin; renderAuth();
+      state.admin = d.data?.admin || d.admin; renderAuth();
     } catch (e) { toast(e.message, "error"); }
   };
 
@@ -66,7 +66,7 @@ function renderAuth() {
 
 function renderNav() {
   const items = [...navItems];
-  if (state.admin?.is_super_admin) items.push(["admin-users", "Admin Users"]);
+  if (state.admin?.role === "super_admin") items.push(["admin-users", "Admin Users"]);
   $("#sideNav").innerHTML = items.map(([k, label]) => `<button class="btn nav-btn ${state.panel === k ? "active" : ""}" data-panel="${k}">${label}</button>`).join("");
   document.querySelectorAll(".nav-btn").forEach((b) => b.onclick = () => { state.panel = b.dataset.panel; renderApp(); });
 }
@@ -133,9 +133,10 @@ async function panelVerification() {
 
 async function panelAdminUsers() {
   const d = await api("/api/admin/users");
+  const admins = d.data?.admins || d.admins || [];
   return `<div style='display:flex;justify-content:space-between;align-items:center;'><h2>Admin Users</h2><button id='newAdminBtn' class='btn btn-gold'>Create Admin</button></div>
-  <div class='table-wrap'><table><thead><tr><th>Email</th><th>Name</th><th>Active</th><th>Super</th><th>Actions</th></tr></thead><tbody>
-  ${(d.admins || []).map((a) => `<tr><td>${esc(a.email)}</td><td>${esc(a.name || "")}</td><td>${Number(a.is_active) ? "Yes" : "No"}</td><td>${Number(a.is_super_admin) ? "Yes" : "No"}</td><td>
+  <div class='table-wrap'><table><thead><tr><th>Email</th><th>Name</th><th>Active</th><th>Role</th><th>Actions</th></tr></thead><tbody>
+  ${admins.map((a) => `<tr><td>${esc(a.email)}</td><td>${esc(a.name || "")}</td><td>${Number(a.is_active) ? "Yes" : "No"}</td><td>${esc(a.role || "admin")}</td><td>
   <button class='btn btn-small t-active' data-id='${a.id}'>Toggle Active</button>
   <button class='btn btn-small t-super' data-id='${a.id}'>Toggle Super</button>
   <button class='btn btn-small t-del' data-id='${a.id}'>Delete</button>
@@ -168,7 +169,8 @@ function bindPanelEvents() {
     const email = prompt("Admin email"); if (!email) return;
     const name = prompt("Name") || "";
     const password = prompt("Temp password (min 8 chars)"); if (!password) return;
-    await api("/api/admin/users", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, name, password }) });
+    const role = prompt("Role (super_admin/admin/staff)") || "admin";
+    await api("/api/admin/users", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, name, password, role }) });
     renderApp();
   };
 }
@@ -192,7 +194,7 @@ async function init() {
 
   try {
     const me = await api("/api/admin/me");
-    state.admin = me.admin;
+    state.admin = me.data?.admin || me.admin;
   } catch { state.admin = null; }
 
   renderAuth();

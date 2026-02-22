@@ -1,10 +1,11 @@
 import { requireAdmin } from "../../_auth";
-import { adminAuthJson, ensureAdminSessionSchema, getErrorMessage } from "./_helpers";
+import { adminAuthJson, ensureAdminSessionSchema, ensureAdminUserSchema, getErrorMessage } from "./_helpers";
 
 export const onRequestGet: PagesFunction = async ({ request, env }) => {
   try {
     const db = env.DB as D1Database;
     await ensureAdminSessionSchema(db);
+    await ensureAdminUserSchema(db);
 
     const auth = await requireAdmin(request, env);
     if (auth instanceof Response) {
@@ -12,7 +13,7 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     }
 
     return adminAuthJson(
-      { ok: true, admin: { id: auth.admin.id, email: auth.admin.email, name: auth.admin.name, is_super_admin: Number(auth.admin.is_super_admin) } },
+      { ok: true, data: { admin: { id: auth.admin.id, email: auth.admin.email, name: auth.admin.name, role: auth.admin.role } } },
       200
     );
   } catch (err) {

@@ -3,7 +3,7 @@ import { requireAdminRequest } from "./_helpers";
 import { computeTierFromLifetimeSpend } from "../orders/_create";
 import { awardPointsForOrder } from "../_rewards";
 
-const allowedStatuses = new Set(["pending", "completed", "cancelled"]);
+const allowedStatuses = new Set(["placed", "completed", "cancelled"]);
 
 export const onRequestPost: PagesFunction = async (context) => {
   const { request, env } = context;
@@ -23,7 +23,7 @@ export const onRequestPost: PagesFunction = async (context) => {
 
   if (!orderId) return json({ ok: false, error: "order_id is required" }, 400);
   if (!allowedStatuses.has(status)) {
-    return json({ ok: false, error: "status must be pending, completed, or cancelled" }, 400);
+    return json({ ok: false, error: "status must be placed, completed, or cancelled" }, 400);
   }
 
   const db = env.DB as D1Database;
