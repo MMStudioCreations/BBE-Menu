@@ -20,6 +20,8 @@ export const onRequestGet: PagesFunction = async ({ params, env }) => {
         subcategory,
         description,
         effects_json,
+        image_key,
+        image_url,
         image_path,
         is_published,
         is_featured,
@@ -47,6 +49,7 @@ export const onRequestGet: PagesFunction = async ({ params, env }) => {
     ok: true,
     product: {
       ...product,
+      image_path: product.image_url || (product.image_key ? `/api/images/${encodeURIComponent(product.image_key)}` : product.image_path || null),
       effects: parseEffects(product.effects_json),
       variants: variants.results || [],
     },

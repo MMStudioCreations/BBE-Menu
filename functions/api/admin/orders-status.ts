@@ -1,4 +1,5 @@
-import { json, requireAdmin } from "../_auth";
+import { json } from "../_auth";
+import { requireAdminRequest } from "./_helpers";
 import { computeTierFromLifetimeSpend } from "../orders/_create";
 import { awardPointsForOrder } from "../_rewards";
 
@@ -7,7 +8,8 @@ const allowedStatuses = new Set(["pending", "completed", "cancelled"]);
 export const onRequestPost: PagesFunction = async (context) => {
   const { request, env } = context;
 
-  if (!requireAdmin(request, env)) return json({ error: "Forbidden" }, 403);
+  const auth = await requireAdminRequest(request, env);
+  if (!auth.ok) return auth.response;
 
   let body: { order_id?: unknown; status?: unknown };
   try {

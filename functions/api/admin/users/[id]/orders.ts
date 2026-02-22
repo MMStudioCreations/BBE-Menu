@@ -1,9 +1,11 @@
-import { json, requireAdmin } from "../../../_auth";
+import { json } from "../../../_auth";
+import { requireAdminRequest } from "../../_helpers";
 
 export const onRequestGet: PagesFunction = async (context) => {
   const { request, env, params } = context;
 
-  if (!requireAdmin(request, env)) return json({ error: "Forbidden" }, 403);
+  const auth = await requireAdminRequest(request, env);
+  if (!auth.ok) return auth.response;
 
   const userId = String(params?.id || "").trim();
   if (!userId) return json({ error: "user id required" }, 400);

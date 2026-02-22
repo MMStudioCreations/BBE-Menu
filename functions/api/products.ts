@@ -60,6 +60,8 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
         p.brand,
         p.category,
         p.subcategory,
+        p.image_key,
+        p.image_url,
         p.image_path,
         p.effects_json,
         MIN(CASE WHEN v.is_active = 1 THEN v.price_cents END) AS from_price_cents
@@ -80,7 +82,9 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     brand: row.brand,
     category: row.category,
     subcategory: row.subcategory,
-    image_path: row.image_path,
+    image_url: row.image_url || null,
+    image_key: row.image_key || null,
+    image_path: row.image_url || (row.image_key ? `/api/images/${encodeURIComponent(row.image_key)}` : row.image_path || null),
     effects: parseEffects(row.effects_json),
     from_price_cents: row.from_price_cents === null ? null : Number(row.from_price_cents),
   }));

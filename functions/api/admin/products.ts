@@ -2,34 +2,37 @@ import { json } from "../_auth";
 import { createId, nowIso, parseEffects, slugify, toBoolInt, uniqueSlug } from "../_products";
 import { requireAdminRequest } from "./_helpers";
 
+const productRow = (row: any) => ({
+  ...row,
+  effects: parseEffects(row.effects_json),
+  is_published: Number(row.is_published || 0),
+});
+
 export const onRequestGet: PagesFunction = async ({ request, env }) => {
   const auth = await requireAdminRequest(request, env);
   if (!auth.ok) return auth.response;
-
   const db = env.DB as D1Database;
   const url = new URL(request.url);
 
   const query = (url.searchParams.get("query") || "").trim();
   const category = (url.searchParams.get("category") || "").trim();
-  const brand = (url.searchParams.get("brand") || "").trim();
+  const subcategory = (url.searchParams.get("subcategory") || "").trim();
   const published = (url.searchParams.get("published") || "").trim();
-  const limit = Math.max(1, Math.min(200, Number(url.searchParams.get("limit") || 50) || 50));
 
   const where: string[] = [];
   const binds: unknown[] = [];
-
   if (query) {
-    where.push("(p.name LIKE ? COLLATE NOCASE OR p.brand LIKE ? COLLATE NOCASE OR p.category LIKE ? COLLATE NOCASE OR p.subcategory LIKE ? COLLATE NOCASE)");
     const like = `%${query}%`;
-    binds.push(like, like, like, like);
+    where.push("(p.name LIKE ? COLLATE NOCASE OR p.slug LIKE ? COLLATE NOCASE OR p.brand LIKE ? COLLATE NOCASE)");
+    binds.push(like, like, like);
   }
   if (category) {
     where.push("p.category = ?");
     binds.push(category);
   }
-  if (brand) {
-    where.push("p.brand = ?");
-    binds.push(brand);
+  if (subcategory) {
+    where.push("p.subcategory = ?");
+    binds.push(subcategory);
   }
   if (published === "0" || published === "1") {
     where.push("p.is_published = ?");
@@ -37,88 +40,60 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
   }
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const { results } = await db.prepare(
+    `SELECT p.*, COUNT(v.id) AS variant_count, MIN(CASE WHEN v.is_active=1 THEN v.price_cents END) AS from_price_cents
+     FROM products p LEFT JOIN product_variants v ON v.product_id = p.id ${whereSql}
+     GROUP BY p.id ORDER BY p.updated_at DESC`
+  ).bind(...binds).all<any>();
 
-  const { results } = await db
-    .prepare(
-      `SELECT
-        p.*,
-        COUNT(v.id) AS variant_count,
-        COALESCE(SUM(CASE WHEN v.is_active = 1 THEN v.inventory_qty ELSE 0 END), 0) AS total_inventory,
-        MAX(CASE WHEN v.is_active = 1 AND v.inventory_qty <= COALESCE(v.low_stock_threshold, 5) THEN 1 ELSE 0 END) AS low_stock
-      FROM products p
-      LEFT JOIN product_variants v ON v.product_id = p.id
-      ${whereSql}
-      GROUP BY p.id
-      ORDER BY p.updated_at DESC
-      LIMIT ?`
-    )
-    .bind(...binds, limit)
-    .all<any>();
-
-  const products = (results || []).map((row: any) => ({
-    ...row,
-    variant_count: Number(row.variant_count || 0),
-    total_inventory: Number(row.total_inventory || 0),
-    low_stock: Number(row.low_stock || 0),
-    effects: parseEffects(row.effects_json),
-  }));
-
-  return json({ ok: true, products });
+  return json({ ok: true, products: (results || []).map(productRow) });
 };
 
 export const onRequestPost: PagesFunction = async ({ request, env }) => {
   const auth = await requireAdminRequest(request, env);
   if (!auth.ok) return auth.response;
-
   const db = env.DB as D1Database;
   const body = await request.json<any>();
 
   const name = String(body?.name || "").trim();
-  const brand = String(body?.brand || "").trim();
   const category = String(body?.category || "").trim();
-  if (!name || !brand || !category) return json({ error: "name, brand, and category are required" }, 400);
+  if (!name || !category) return json({ error: "name and category are required" }, 400);
 
-  const slug = body?.slug ? await uniqueSlug(db, String(body.slug)) : await uniqueSlug(db, name);
   const id = createId("prd");
+  const slug = await uniqueSlug(db, String(body?.slug || name));
   const now = nowIso();
+  const effects = Array.isArray(body?.effects) ? body.effects.map((x: unknown) => String(x)).filter(Boolean) : [];
 
-  const payload = {
+  await db.prepare(
+    `INSERT INTO products (id, slug, name, brand, category, subcategory, description, effects_json, image_key, image_url, image_path, is_published, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
     id,
-    slug: slugify(slug),
+    slugify(slug),
     name,
-    brand,
+    String(body?.brand || "").trim() || null,
     category,
-    subcategory: body?.subcategory ? String(body.subcategory).trim() : null,
-    description: body?.description ? String(body.description).trim() : null,
-    effects_json: JSON.stringify(Array.isArray(body?.effects) ? body.effects.map((v: unknown) => String(v)).filter(Boolean) : []),
-    image_path: body?.image_path ? String(body.image_path).trim() : null,
-    is_published: toBoolInt(body?.is_published, 1),
-    is_featured: toBoolInt(body?.is_featured, 0),
-    created_at: now,
-    updated_at: now,
-  };
+    String(body?.subcategory || "").trim() || null,
+    String(body?.description || "").trim() || null,
+    JSON.stringify(effects),
+    String(body?.image_key || "").trim() || null,
+    String(body?.image_url || "").trim() || null,
+    String(body?.image_path || "").trim() || null,
+    toBoolInt(body?.is_published, 1),
+    now,
+    now
+  ).run();
 
-  await db
-    .prepare(
-      `INSERT INTO products (id, slug, name, brand, category, subcategory, description, effects_json, image_path, is_published, is_featured, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .bind(
-      payload.id,
-      payload.slug,
-      payload.name,
-      payload.brand,
-      payload.category,
-      payload.subcategory,
-      payload.description,
-      payload.effects_json,
-      payload.image_path,
-      payload.is_published,
-      payload.is_featured,
-      payload.created_at,
-      payload.updated_at
-    )
-    .run();
+  const variants = Array.isArray(body?.variants) ? body.variants : [];
+  for (let i = 0; i < variants.length; i++) {
+    const v = variants[i] || {};
+    if (!v.label) continue;
+    await db.prepare(
+      `INSERT INTO product_variants (id, product_id, label, price_cents, sort_order, is_active, inventory_qty, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`
+    ).bind(createId("var"), id, String(v.label).trim(), Math.round(Number(v.price_cents || 0) || 0), Number(v.sort_order ?? i), toBoolInt(v.is_active, 1), now, now).run();
+  }
 
-  return json({ ok: true, product: { ...payload, effects: parseEffects(payload.effects_json) } }, 201);
+  const product = await db.prepare("SELECT * FROM products WHERE id = ?").bind(id).first<any>();
+  return json({ ok: true, product: productRow(product) }, 201);
 };

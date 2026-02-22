@@ -1,11 +1,13 @@
-import { getSessionUserId, json, requireAdmin } from "../../../_auth";
+import { json } from "../../../_auth";
+import { requireAdminRequest } from "../../_helpers";
 
 const VALID_STATUSES = new Set(["approved", "denied", "pending"]);
 
 export const onRequestPost: PagesFunction = async (context) => {
   const { request, env, params } = context;
 
-  if (!requireAdmin(request, env)) return json({ error: "Forbidden" }, 403);
+  const auth = await requireAdminRequest(request, env);
+  if (!auth.ok) return auth.response;
 
   const userId = String(params?.id || "").trim();
   if (!userId) return json({ error: "user id required" }, 400);
@@ -26,7 +28,7 @@ export const onRequestPost: PagesFunction = async (context) => {
 
   const db = env.DB as D1Database;
   const now = new Date().toISOString();
-  const adminId = await getSessionUserId(request, env);
+  const adminId = auth.admin.id;
 
   const verifiedAt = accountStatus === "approved" ? now : null;
   const verifiedByAdminId = accountStatus === "approved" ? adminId : null;

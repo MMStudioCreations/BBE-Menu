@@ -3,62 +3,27 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Bobby Black — Admin Workspace</title>
+  <title>BBE Admin</title>
   <link rel="stylesheet" href="/admin/admin.css" />
   <script src="/admin/admin.js" defer></script>
 </head>
 <body>
   <div class="admin-app">
-    <aside class="sidebar">
-      <div>
-        <div class="logo">BBE</div>
-        <h1>Admin Workspace</h1>
-        <nav id="sidebarNav" class="nav"></nav>
-      </div>
-      <div class="sidebar-footer"><span>Session:</span><strong id="lockIndicator">Locked</strong></div>
-    </aside>
+    <aside class="sidebar"><div><div class="logo">BBE</div><h1>Admin Workspace</h1></div><div id="adminIdentity" class="sidebar-footer">Not signed in</div></aside>
     <main class="main">
       <header class="topbar panel">
-        <input id="globalSearch" type="search" placeholder="Search current view ( / )" />
-        <button id="refreshBtn" class="btn">Refresh</button>
-        <div class="unlock-wrap">
-          <input id="adminUsername" type="text" placeholder="Admin username" />
-          <input id="secret" type="password" placeholder="Admin password / secret" />
-          <button id="unlockBtn" class="btn btn-gold">Unlock</button>
-          <span id="unlockStatus" class="muted">Locked</span>
-        </div>
+        <input id="search" type="search" placeholder="Search products" />
+        <select id="categoryFilter"><option value="">All categories</option><option>Flower</option><option>Concentrates</option><option>Accessories</option></select>
+        <select id="publishedFilter"><option value="">All status</option><option value="1">Published</option><option value="0">Unpublished</option></select>
+        <button id="newProductBtn" class="btn btn-gold">New Product</button>
+        <button id="logoutBtn" class="btn">Logout</button>
       </header>
-      <section id="viewContent" class="content panel"></section>
+      <section id="authView" class="content panel"></section>
+      <section id="workspace" class="content panel" hidden>
+        <div id="productsList"></div>
+      </section>
     </main>
-    <aside id="drawer" class="drawer" aria-hidden="true">
-      <div class="drawer-head">
-        <h2 id="drawerTitle">Details</h2>
-        <div class="drawer-head-actions">
-          <button id="drawerMinimize" class="btn btn-small">Minimize</button>
-          <button id="drawerClose" class="btn btn-small">✕</button>
-        </div>
-      </div>
-      <div id="drawerBody" class="drawer-body"></div>
-      <div id="drawerActions" class="drawer-actions"></div>
-    </aside>
-    <button id="drawerTab" class="drawer-tab" hidden>Open Panel</button>
   </div>
-
-  <div id="commandPalette" class="modal palette" hidden>
-    <div class="modal-card">
-      <div class="modal-head"><strong>Command Palette</strong><button id="paletteClose" class="btn btn-small">Close</button></div>
-      <input id="paletteInput" type="search" placeholder="Search commands, customers, orders, products" />
-      <div id="paletteResults" class="palette-results"></div>
-    </div>
-  </div>
-
-  <div id="confirmModal" class="modal" hidden>
-    <div class="modal-card">
-      <p id="confirmText">Confirm action?</p>
-      <div class="modal-actions"><button id="confirmCancel" class="btn">Cancel</button><button id="confirmOk" class="btn btn-gold">Confirm</button></div>
-    </div>
-  </div>
-
   <div id="toastRoot" class="toast-root"></div>
 </body>
 </html>

@@ -1,11 +1,13 @@
-import { json, requireAdmin } from "../_auth";
+import { json } from "../_auth";
+import { requireAdminRequest } from "./_helpers";
 
 const ALLOWED_STATUSES = new Set(["pending", "approved", "denied", "all"]);
 
 export const onRequestGet: PagesFunction = async (context) => {
   const { request, env } = context;
 
-  if (!requireAdmin(request, env)) return json({ error: "Forbidden" }, 403);
+  const auth = await requireAdminRequest(request, env);
+  if (!auth.ok) return auth.response;
 
   const db = env.DB as D1Database;
   const url = new URL(request.url);
