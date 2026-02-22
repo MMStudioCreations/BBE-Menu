@@ -50,7 +50,7 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
     }
 
     const admin = await db
-      .prepare("SELECT id, email, name, password_hash, COALESCE(role, CASE WHEN COALESCE(is_super_admin,0)=1 THEN 'super_admin' ELSE 'admin' END) AS role, COALESCE(is_active, 1) AS is_active, COALESCE(is_super_admin, 0) AS is_super_admin FROM admin_users WHERE lower(email) = lower(?)")
+      .prepare("SELECT id, email, name, password_hash, COALESCE(role, CASE WHEN COALESCE(is_super_admin,0)=1 THEN 'super_admin' ELSE 'admin' END) AS role, COALESCE(is_active, 1) AS is_active, COALESCE(is_super_admin, 0) AS is_super_admin, COALESCE(is_owner,0) AS is_owner FROM admin_users WHERE lower(email) = lower(?)")
       .bind(email)
       .first<any>();
 
@@ -69,7 +69,8 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
 
     const sessionId = uuid();
     const now = new Date().toISOString();
-    const expiresAt = new Date(Date.now() + 7 * 86400000).toISOString();
+    const sessionDays = Math.max(1, Number(env.ADMIN_SESSION_DAYS || 14) || 14);
+    const expiresAt = new Date(Date.now() + sessionDays * 86400000).toISOString();
     const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || null;
     const userAgent = request.headers.get("user-agent") || null;
 
@@ -80,11 +81,14 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
 
     await db.prepare("UPDATE admin_users SET last_login_at = ?, updated_at = ? WHERE id = ?").bind(now, now, admin.id).run();
 
-    const role = String(admin.role || "admin").toLowerCase() === "staff" ? "staff" : (Number(admin.is_super_admin) === 1 || String(admin.role || "").toLowerCase() === "super_admin" ? "super_admin" : "admin");
+    const roleRaw = String(admin.role || "admin").toLowerCase();
+    const isOwner = roleRaw === "owner" || Number(admin.is_owner || 0) === 1 || (String(env.OWNER_EMAIL || "").trim().toLowerCase() === email && String(env.OWNER_EMAIL || "").trim() !== "");
+    const role = isOwner ? "owner" : (roleRaw === "staff" ? "staff" : ((Number(admin.is_super_admin) === 1 || roleRaw === "super_admin") ? "super_admin" : "admin"));
     const response = adminAuthJson({ ok: true, data: { admin: { id: admin.id, email: admin.email, name: admin.name, role } } }, 200);
-    response.headers.append("set-cookie", setCookie("bb_admin_session", sessionId, 7));
-    response.headers.append("set-cookie", setCookie("bbe_admin_session", sessionId, 7));
-    response.headers.append("set-cookie", setCookie("bb_session", sessionId, 7));
+    response.headers.append("set-cookie", setCookie("admin_session", sessionId, sessionDays));
+    response.headers.append("set-cookie", setCookie("bb_admin_session", sessionId, sessionDays));
+    response.headers.append("set-cookie", setCookie("bbe_admin_session", sessionId, sessionDays));
+    response.headers.append("set-cookie", setCookie("bb_session", sessionId, sessionDays));
     return response;
   } catch (err) {
     return adminAuthJson({ ok: false, error: "server_error", msg: getErrorMessage(err) }, 500, "exception", "server_error", "Unhandled login error");

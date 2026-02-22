@@ -48,12 +48,19 @@ export type AdminAuthInfo = {
   id: string;
   email: string;
   name: string | null;
-  role: "super_admin" | "admin" | "staff";
+  role: "owner" | "super_admin" | "admin" | "staff";
   is_super_admin: number;
+  is_owner: number;
 };
+
+function isOwnerEmail(email: string, env: any) {
+  const ownerEmail = String(env?.OWNER_EMAIL || "").trim().toLowerCase();
+  return ownerEmail ? ownerEmail === String(email || "").trim().toLowerCase() : false;
+}
 
 async function getAdminSession(request: Request, env: any): Promise<AdminAuthInfo | null> {
   const sessionId =
+    getCookie(request, "admin_session") ||
     getCookie(request, "bb_admin_session") ||
     getCookie(request, "bbe_admin_session") ||
     getCookie(request, "bb_session");
@@ -69,22 +76,26 @@ async function getAdminSession(request: Request, env: any): Promise<AdminAuthInf
   if (Date.parse(String(session.expires_at || "")) < Date.now()) return null;
 
   const admin = await db
-    .prepare("SELECT id, email, name, COALESCE(role, CASE WHEN COALESCE(is_super_admin,0)=1 THEN 'super_admin' ELSE 'admin' END) AS role, COALESCE(is_super_admin, 0) AS is_super_admin, COALESCE(is_active, 1) AS is_active FROM admin_users WHERE id = ?")
+    .prepare("SELECT id, email, name, COALESCE(role, CASE WHEN COALESCE(is_owner,0)=1 THEN 'owner' WHEN COALESCE(is_super_admin,0)=1 THEN 'super_admin' ELSE 'admin' END) AS role, COALESCE(is_super_admin, 0) AS is_super_admin, COALESCE(is_owner, 0) AS is_owner, COALESCE(is_active, 1) AS is_active FROM admin_users WHERE id = ?")
     .bind(session.admin_user_id)
     .first<any>();
 
   if (!admin || Number(admin.is_active) !== 1) return null;
 
   const role = String(admin.role || "admin").toLowerCase();
-  const normalizedRole = (role === "super_admin" || role === "staff") ? role : "admin";
+  const normalizedRole = (role === "owner" || role === "super_admin" || role === "staff") ? role : "admin";
+  const dbOwner = normalizedRole === "owner" || Number(admin.is_owner || 0) === 1;
+  const envOwner = isOwnerEmail(String(admin.email || ""), env);
+  const isOwner = dbOwner || envOwner;
   const isSuperAdmin = normalizedRole === "super_admin" || Number(admin.is_super_admin || 0) === 1;
 
   return {
     id: String(admin.id),
     email: String(admin.email),
     name: admin.name ? String(admin.name) : null,
-    role: isSuperAdmin ? "super_admin" : (normalizedRole as "admin" | "staff"),
+    role: isOwner ? "owner" : (isSuperAdmin ? "super_admin" : (normalizedRole as "admin" | "staff")),
     is_super_admin: isSuperAdmin ? 1 : 0,
+    is_owner: isOwner ? 1 : 0,
   };
 }
 
@@ -97,8 +108,17 @@ export async function requireAdmin(request: Request, env: any): Promise<{ admin:
 export async function requireSuperAdmin(request: Request, env: any): Promise<{ admin: AdminAuthInfo } | Response> {
   const required = await requireAdmin(request, env);
   if (required instanceof Response) return required;
-  if (Number(required.admin.is_super_admin) !== 1) {
+  if (Number(required.admin.is_super_admin) !== 1 && Number(required.admin.is_owner) !== 1) {
     return json({ ok: false, error: "super_admin_required" }, 403);
+  }
+  return required;
+}
+
+export async function requireOwner(request: Request, env: any): Promise<{ admin: AdminAuthInfo } | Response> {
+  const required = await requireAdmin(request, env);
+  if (required instanceof Response) return required;
+  if (Number(required.admin.is_owner) !== 1) {
+    return json({ ok: false, error: "owner_required", code: "OWNER_REQUIRED" }, 403);
   }
   return required;
 }

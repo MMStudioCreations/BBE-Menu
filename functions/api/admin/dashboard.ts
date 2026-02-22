@@ -2,30 +2,22 @@ import { json } from "../_auth";
 import { requireAdminRequest } from "./_helpers";
 
 function resolveRange(url: URL) {
-  const range = (url.searchParams.get("range") || "7").toLowerCase();
+  const range = (url.searchParams.get("range") || "7d").toLowerCase();
   const now = new Date();
-  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  let start = new Date(today);
-  let end = new Date(today);
-  end.setUTCDate(end.getUTCDate() + 1);
+  let days = 7;
+  if (range === "30d") days = 30;
+  if (range === "90d") days = 90;
 
-  if (range === "today") {
-    return { start: today.toISOString(), end: end.toISOString() };
-  }
-  if (range === "30") {
-    start.setUTCDate(start.getUTCDate() - 29);
-    return { start: start.toISOString(), end: end.toISOString() };
-  }
   if (range === "custom") {
-    const s = url.searchParams.get("start") || "";
-    const e = url.searchParams.get("end") || "";
-    const parsedStart = s ? new Date(`${s}T00:00:00.000Z`) : today;
-    const parsedEnd = e ? new Date(`${e}T23:59:59.999Z`) : end;
-    return { start: parsedStart.toISOString(), end: parsedEnd.toISOString() };
+    const from = url.searchParams.get("from") || url.searchParams.get("start") || "";
+    const to = url.searchParams.get("to") || url.searchParams.get("end") || "";
+    const start = from ? new Date(`${from}T00:00:00.000Z`) : new Date(Date.now() - 6 * 86400000);
+    const end = to ? new Date(`${to}T23:59:59.999Z`) : now;
+    return { start: start.toISOString(), end: end.toISOString(), range: "custom" };
   }
 
-  start.setUTCDate(start.getUTCDate() - 6);
-  return { start: start.toISOString(), end: end.toISOString() };
+  const start = new Date(Date.now() - (days - 1) * 86400000);
+  return { start: start.toISOString(), end: now.toISOString(), range: `${days}d` };
 }
 
 export const onRequestGet: PagesFunction = async ({ request, env }) => {
@@ -34,84 +26,44 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
 
   const db = env.DB as D1Database;
   const url = new URL(request.url);
-  const { start, end } = resolveRange(url);
+  const { start, end, range } = resolveRange(url);
 
-  const metrics = await db
-    .prepare(
-      `SELECT
-        COALESCE(SUM(CASE WHEN LOWER(status) = 'completed' THEN total_cents ELSE 0 END), 0) AS revenue_completed_cents,
-        COALESCE(SUM(CASE WHEN LOWER(status) IN ('pending','placed') THEN total_cents ELSE 0 END), 0) AS pending_cents,
-        COALESCE(SUM(CASE WHEN LOWER(status) = 'cancelled' THEN total_cents ELSE 0 END), 0) AS cancelled_cents,
-        COALESCE(SUM(CASE WHEN LOWER(status) = 'completed' THEN 1 ELSE 0 END), 0) AS orders_completed_count,
-        COALESCE(SUM(CASE WHEN LOWER(status) IN ('pending','placed') THEN 1 ELSE 0 END), 0) AS orders_pending_count,
-        COALESCE(SUM(CASE WHEN LOWER(status) = 'cancelled' THEN 1 ELSE 0 END), 0) AS orders_cancelled_count
-       FROM orders
-       WHERE created_at >= ? AND created_at <= ?`
-    )
-    .bind(start, end)
-    .first<any>();
+  const metrics = await db.prepare(`SELECT
+    COALESCE(SUM(CASE WHEN LOWER(status)='completed' THEN total_cents ELSE 0 END),0) AS revenue_cents,
+    COALESCE(SUM(CASE WHEN LOWER(status)='completed' THEN 1 ELSE 0 END),0) AS orders_completed,
+    COALESCE(SUM(CASE WHEN LOWER(status)='pending' THEN 1 ELSE 0 END),0) AS orders_pending,
+    COALESCE(SUM(CASE WHEN LOWER(status)='cancelled' THEN 1 ELSE 0 END),0) AS orders_cancelled,
+    COALESCE(SUM(CASE WHEN user_id IS NULL THEN 1 ELSE 0 END),0) AS guest_orders
+    FROM orders WHERE created_at >= ? AND created_at <= ?`).bind(start, end).first<any>();
 
-  const customers = await db
-    .prepare(
-      `SELECT
-        (SELECT COUNT(*) FROM users) AS customers_total,
-        (SELECT COUNT(*) FROM users WHERE COALESCE(is_active, 1) = 1) AS customers_active,
-        (SELECT COUNT(*) FROM users WHERE created_at >= ? AND created_at <= ?) AS new_customers_count`
-    )
-    .bind(start, end)
-    .first<any>();
+  const topProducts = await db.prepare(`SELECT oi.product_id, oi.product_name, COALESCE(SUM(oi.quantity),0) AS qty, COALESCE(SUM(oi.line_total_cents),0) AS revenue_cents
+      FROM order_items oi
+      INNER JOIN orders o ON o.id=oi.order_id
+      WHERE o.created_at >= ? AND o.created_at <= ? AND LOWER(COALESCE(o.status,'pending'))='completed'
+      GROUP BY oi.product_id, oi.product_name
+      ORDER BY qty DESC, revenue_cents DESC
+      LIMIT 10`).bind(start, end).all<any>().catch(() => ({ results: [] } as any));
 
-  const points = await db
-    .prepare(
-      `SELECT
-        COALESCE(SUM(CASE WHEN points_delta > 0 THEN points_delta ELSE 0 END), 0) AS points_issued,
-        COALESCE(SUM(CASE WHEN points_delta < 0 THEN ABS(points_delta) ELSE 0 END), 0) AS points_redeemed
-      FROM points_ledger
-      WHERE created_at >= ? AND created_at <= ?`
-    )
-    .bind(start, end)
-    .first<any>();
+  const newUsers = await db.prepare(`SELECT COUNT(*) AS c FROM users WHERE created_at >= ? AND created_at <= ?`).bind(start, end).first<any>();
 
-  const outstanding = await db.prepare("SELECT COALESCE(SUM(COALESCE(points_balance, 0)),0) AS points_outstanding FROM users").first<any>();
+  const completed = Number(metrics?.orders_completed || 0);
+  const revenue = Number(metrics?.revenue_cents || 0);
 
-  const topCustomers = await db
-    .prepare(
-      `SELECT
-        u.id,
-        u.email,
-        u.first_name,
-        u.last_name,
-        COALESCE(SUM(CASE WHEN LOWER(o.status) = 'completed' THEN o.total_cents ELSE 0 END), 0) AS lifetime_spend_completed_cents,
-        COALESCE(u.points_balance,0) AS points_balance
-      FROM users u
-      LEFT JOIN orders o ON o.user_id = u.id
-      GROUP BY u.id
-      ORDER BY lifetime_spend_completed_cents DESC, points_balance DESC
-      LIMIT 10`
-    )
-    .all();
-
-  const completedCount = Number(metrics?.orders_completed_count || 0);
-  const revenueCompleted = Number(metrics?.revenue_completed_cents || 0);
-
-  return json({
-    ok: true,
-    range: { start, end },
+  return json({ ok: true, range: { start, end, range },
+    revenue_cents: revenue,
+    orders_completed: completed,
+    orders_pending: Number(metrics?.orders_pending || 0),
+    orders_cancelled: Number(metrics?.orders_cancelled || 0),
+    avg_order_value_cents: completed ? Math.round(revenue / completed) : 0,
+    top_products: topProducts.results || [],
+    new_users: Number(newUsers?.c || 0),
+    guest_orders: Number(metrics?.guest_orders || 0),
     metrics: {
-      revenue_completed_cents: revenueCompleted,
-      pending_cents: Number(metrics?.pending_cents || 0),
-      cancelled_cents: Number(metrics?.cancelled_cents || 0),
-      orders_completed_count: completedCount,
-      orders_pending_count: Number(metrics?.orders_pending_count || 0),
-      orders_cancelled_count: Number(metrics?.orders_cancelled_count || 0),
-      aov_completed_cents: completedCount > 0 ? Math.round(revenueCompleted / completedCount) : 0,
-      customers_total: Number(customers?.customers_total || 0),
-      customers_active: Number(customers?.customers_active || 0),
-      new_customers_count: Number(customers?.new_customers_count || 0),
-      points_issued: Number(points?.points_issued || 0),
-      points_redeemed: Number(points?.points_redeemed || 0),
-      points_outstanding: Number(outstanding?.points_outstanding || 0),
-    },
-    top_customers: topCustomers.results || [],
+      revenue_completed_cents: revenue,
+      orders_completed_count: completed,
+      orders_pending_count: Number(metrics?.orders_pending || 0),
+      orders_cancelled_count: Number(metrics?.orders_cancelled || 0),
+      aov_completed_cents: completed ? Math.round(revenue / completed) : 0,
+    }
   });
 };

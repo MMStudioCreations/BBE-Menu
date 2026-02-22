@@ -62,4 +62,12 @@ export async function ensureAdminUserSchema(db: D1Database) {
       if (!msg.includes("duplicate column")) throw err;
     }
   }
+  if (!columns.has("is_owner")) {
+    try {
+      await db.prepare("ALTER TABLE admin_users ADD COLUMN is_owner INTEGER NOT NULL DEFAULT 0").run();
+    } catch (err) {
+      const msg = getErrorMessage(err).toLowerCase();
+      if (!msg.includes("duplicate column")) throw err;
+    }
+  }
 }

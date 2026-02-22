@@ -20,7 +20,7 @@
     <main class="main">
       <header id="workspaceTopbar" class="topbar panel" hidden>
         <input id="globalSearch" type="search" placeholder="Search" />
-        <select id="globalRange"><option value="today">Today</option><option value="7" selected>7 days</option><option value="30">30 days</option><option value="custom">Custom</option></select>
+        <select id="globalRange"><option value="7d" selected>7 days</option><option value="30d">30 days</option><option value="90d">90 days</option><option value="custom">Custom</option></select>
         <input id="customStart" type="date" hidden />
         <input id="customEnd" type="date" hidden />
         <button id="refreshBtn" class="btn">Refresh</button>
@@ -30,7 +30,7 @@
       <section id="workspace" class="content panel" hidden></section>
     </main>
     <aside id="detailDrawer" class="drawer">
-      <div class="drawer-head"><strong id="drawerTitle">Details</strong><button id="drawerClose" class="btn btn-small">Close</button></div>
+      <div class="drawer-head"><strong id="drawerTitle">Details</strong><div><button id="drawerMinimize" class="btn btn-small">Minimize</button> <button id="drawerClose" class="btn btn-small">Close</button></div></div>
       <div id="drawerBody" class="drawer-body"></div>
     </aside>
   </div>

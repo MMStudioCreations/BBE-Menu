@@ -146,3 +146,23 @@ This ensures cancelled orders are excluded from completed revenue/lifetime spend
 
 ## Admin Workspace v2 migration
 Run migrations normally (no extra manual steps). The new `migrations/0011_admin_workspace_v2.sql` adds role-aware admin users, saved views, daily metrics, and supporting indexes.
+
+## Admin workspace env + bindings
+
+Admin auth and product CMS now support multi-admin sessions and image upload.
+
+Required/optional vars (all optional-safe defaults applied where noted):
+- `OWNER_EMAIL` (optional; matching admin is treated as owner)
+- `OWNER_NAME` (optional)
+- `ADMIN_SESSION_DAYS` (optional, default `14`)
+- `RESEND_API_KEY` (existing password-reset email)
+- `MAIL_FROM` (default `budtender@bobbyblacknyc.com`)
+- `SITE_URL` (default `https://bobbyblacknyc.com`)
+
+R2 binding for product uploads:
+- Bind one bucket as `PRODUCT_IMAGES` (preferred), `R2`, or `IMAGES_BUCKET`.
+- Upload endpoint: `POST /api/admin/products/:id/image` and health endpoint: `GET /api/debug/admin-health`.
+
+Notes:
+- Admin login sets `admin_session` (plus legacy admin cookie names for compatibility).
+- Owner access gracefully works from DB role/flag (`role='owner'` or `is_owner=1`) even when `OWNER_EMAIL` is not set.

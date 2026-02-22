@@ -792,8 +792,8 @@
       });
     }
 
-    const FLOWER_GROUP_ORDER = ["CA$H RULE$", "Bobby Black Exclusives", "Loose Lineup", "Shake", "Other"];
-    const FLOWER_PILL_ORDER = ["All", "CA$H RULE$", "Bobby Black Exclusives", "Loose Lineup", "Shake"];
+    const FLOWER_GROUP_ORDER = ["CA$H RULE$", "Bobby Black Exclusives", "Loose Lineup", "Shakes", "Other"];
+    const FLOWER_PILL_ORDER = ["All", "CA$H RULE$", "Bobby Black Exclusives", "Loose Lineup", "Shakes"];
     const FLOWER_DEFAULT_OPEN_GROUP = "Loose Lineup";
 
     let d1FlowerItems = [];
@@ -809,11 +809,10 @@
 
     function normalizeSubcategory(value){
       const raw = String(value || "").toLowerCase();
-      if (raw.includes('cash')) return 'CA$H RULE$';
-      if (raw.includes('bobby')) return 'Bobby Black Exclusives';
-      if (raw.includes('loose')) return 'Loose Lineup';
-      if (raw.includes('shake')) return 'Shake';
-      return 'Other';
+      if (raw.includes('cash') || raw.includes('ca$h')) return 'CA$H RULE$';
+      if (raw.includes('exclusive')) return 'Bobby Black Exclusives';
+      if (raw.includes('shake')) return 'Shakes';
+      return 'Loose Lineup';
     }
 
     function buildFlowerGroups(items){

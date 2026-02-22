@@ -1,4 +1,4 @@
-import { json } from "../../_auth";
+import { json, requireOwner } from "../../_auth";
 import { createId, nowIso, parseEffects, slugify, toBoolInt } from "../../_products";
 import { requireAdminRequest } from "../_helpers";
 
@@ -71,13 +71,23 @@ export const onRequestDelete: PagesFunction = async ({ params, request, env }) =
   if (!auth.ok) return auth.response;
   const id = String(params.id || "").trim();
   const url = new URL(request.url);
-  const mode = url.searchParams.get("mode") || "hard";
+  const hard = url.searchParams.get("hard") === "true" || url.searchParams.get("hard") === "1";
+  const confirm = (url.searchParams.get("confirm") || "").toLowerCase();
   const db = env.DB as D1Database;
-  if (mode === "unpublish") {
+
+  if (!hard) {
     await db.prepare("UPDATE products SET is_published = 0, updated_at = ? WHERE id = ?").bind(nowIso(), id).run();
-  } else {
-    await db.prepare("DELETE FROM product_variants WHERE product_id = ?").bind(id).run();
-    await db.prepare("DELETE FROM products WHERE id = ?").bind(id).run();
+    return json({ ok: true, mode: "unpublish" });
   }
-  return json({ ok: true });
+
+  const owner = await requireOwner(request, env);
+  if (owner instanceof Response) return owner;
+  if (confirm !== "delete") return json({ ok:false, error:"owner_confirm_required", code:"OWNER_CONFIRM_REQUIRED" }, 400);
+
+  await db.prepare("DELETE FROM inventory_movements WHERE variant_id IN (SELECT id FROM product_variants WHERE product_id = ?)").bind(id).run();
+  await db.prepare("DELETE FROM product_variants WHERE product_id = ?").bind(id).run();
+  await db.prepare("DELETE FROM products WHERE id = ?").bind(id).run();
+  return json({ ok: true, mode: "hard_delete" });
 };
+
+export const onRequestPatch = onRequestPut;

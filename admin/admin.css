@@ -27,6 +27,10 @@ tr.selected { background:#1c170d; outline:1px solid var(--gold); }
 .badge.green { border-color:#286137; color:#7ae597; } .badge.red { border-color:#863138; color:#ff9a9a; }
 .drawer { width:0; overflow:hidden; transition:width .35s cubic-bezier(.22,1,.36,1); border-left:1px solid transparent; background:#090909; position:sticky; top:0; height:100vh; }
 .drawer.open { width:430px; border-left-color:var(--border); }
+.drawer.minimized { width:64px !important; }
+.drawer.minimized .drawer-body { display:none; }
+.drawer.minimized #drawerClose { display:none; }
+
 .drawer-head { display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid var(--border); }
 .drawer-body { padding:12px; overflow:auto; height:calc(100vh - 130px); }
 .drawer-actions { position:sticky; bottom:0; background:#0a0a0a; border-top:1px solid var(--border); padding:10px; display:flex; gap:8px; }

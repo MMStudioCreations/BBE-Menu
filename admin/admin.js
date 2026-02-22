@@ -19,8 +19,12 @@ const toast = (message, type = "ok") => {
 
 async function api(path, opts = {}) {
   const res = await fetch(path, { credentials: "include", ...opts });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || data.msg || `Request failed (${res.status})`);
+    const text = await res.text();
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch {
+    throw new Error(res.ok ? "Unexpected server response" : "Server error – check logs");
+  }
+  if (!res.ok) throw new Error(data.error || data.msg || data.code || `Request failed (${res.status})`);
   return data;
 }
 
@@ -66,7 +70,7 @@ function renderAuth() {
 
 function renderNav() {
   const items = [...navItems];
-  if (state.admin?.role === "super_admin") items.push(["admin-users", "Admin Users"]);
+  if (["owner","super_admin"].includes(state.admin?.role)) items.push(["admin-users", "Admin Users"]);
   $("#sideNav").innerHTML = items.map(([k, label]) => `<button class="btn nav-btn ${state.panel === k ? "active" : ""}" data-panel="${k}">${label}</button>`).join("");
   document.querySelectorAll(".nav-btn").forEach((b) => b.onclick = () => { state.panel = b.dataset.panel; renderApp(); });
 }
@@ -177,7 +181,9 @@ function bindPanelEvents() {
 
 async function init() {
   $("#logoutBtn").onclick = async () => { await api("/api/admin/logout", { method: "POST" }); state.admin = null; $("#detailDrawer").classList.remove("open"); renderAuth(); };
-  $("#drawerClose").onclick = () => $("#detailDrawer").classList.remove("open");
+  $("#drawerClose").onclick = () => { const d=$("#detailDrawer"); d.classList.remove("open"); d.classList.remove("minimized"); };
+  const m = $("#drawerMinimize");
+  if (m) m.onclick = () => $("#detailDrawer").classList.toggle("minimized");
   $("#refreshBtn").onclick = () => renderApp();
   $("#globalSearch").onchange = () => renderApp();
   $("#globalRange").onchange = () => {
