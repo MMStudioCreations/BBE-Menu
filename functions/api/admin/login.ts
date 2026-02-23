@@ -109,10 +109,34 @@ export const onRequestPost: PagesFunction = async ({ request, env, params }) => 
     const createdAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    await db
-      .prepare("INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)")
-      .bind(sessionId, admin.id, expiresAt, createdAt)
-      .run();
+    const sessionInfo = await db.prepare("PRAGMA table_info(sessions)").all<any>();
+    const sessionColumns = new Set((sessionInfo.results || []).map((r: any) => String(r?.name || "").toLowerCase()));
+
+    const insertColumns = ["id", "expires_at", "created_at"];
+    const insertValues: Array<string | number> = [sessionId, expiresAt, createdAt];
+
+    if (sessionColumns.has("admin_user_id")) {
+      insertColumns.push("admin_user_id");
+      insertValues.push(String(admin.id));
+    } else if (sessionColumns.has("user_id")) {
+      insertColumns.push("user_id");
+      insertValues.push(String(admin.id));
+    } else {
+      throw new Error("sessions table is missing both admin_user_id and user_id columns");
+    }
+
+    if (sessionColumns.has("session_type")) {
+      insertColumns.push("session_type");
+      insertValues.push("admin");
+    } else if (sessionColumns.has("type")) {
+      insertColumns.push("type");
+      insertValues.push("admin");
+    }
+
+    const placeholders = insertColumns.map(() => "?").join(", ");
+    const insertSql = `INSERT INTO sessions (${insertColumns.join(", ")}) VALUES (${placeholders})`;
+
+    await db.prepare(insertSql).bind(...insertValues).run();
 
     return jsonResponse(
       {
