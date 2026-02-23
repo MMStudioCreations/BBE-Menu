@@ -1,5 +1,5 @@
 import { hashPassword, json, verifyPassword } from "../auth/_utils";
-import { ensureAdminAuthSchema, getAdminPasswordChangeColumn, requireAdmin } from "./_auth";
+import { ensureAdminAuthSchema, requireAdmin } from "./_auth";
 
 export const onRequestPost: PagesFunction = async ({ request, env }) => {
   const auth = await requireAdmin(request, env);
@@ -17,10 +17,9 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
     return json({ ok: false, error: "new_password_too_short" }, 400);
   }
 
-  const passwordChangeColumn = await getAdminPasswordChangeColumn(db);
 
   const row = await db
-    .prepare(`SELECT password_hash, COALESCE(${passwordChangeColumn},0) AS must_change_password FROM admins WHERE id = ? LIMIT 1`)
+    .prepare("SELECT password_hash, COALESCE(must_change_password,0) AS must_change_password FROM admins WHERE id = ? LIMIT 1")
     .bind(auth.id)
     .first<any>();
 
@@ -36,7 +35,7 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
 
   const nextHash = await hashPassword(newPassword);
   await db
-    .prepare(`UPDATE admins SET password_hash = ?, ${passwordChangeColumn} = 0, updated_at = datetime('now') WHERE id = ?`)
+    .prepare("UPDATE admins SET password_hash = ?, must_change_password = 0, updated_at = datetime('now') WHERE id = ?")
     .bind(nextHash, auth.id)
     .run();
 

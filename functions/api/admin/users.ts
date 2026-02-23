@@ -1,5 +1,5 @@
 import { hashPassword, json } from "../auth/_utils";
-import { ensureAdminAuthSchema, getAdminPasswordChangeColumn, requirePasswordReady, requireSuperAdmin } from "./_auth";
+import { ensureAdminAuthSchema, requirePasswordReady, requireSuperAdmin } from "./_auth";
 
 export const onRequestGet: PagesFunction = async ({ request, env }) => {
   const auth = await requireSuperAdmin(request, env);
@@ -13,7 +13,6 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
 
   const adminUsersInfo = await db.prepare("PRAGMA table_info(admins)").all<any>();
   const adminUserColumns = new Set((adminUsersInfo.results || []).map((r: any) => String(r?.name || "").toLowerCase()));
-  const passwordChangeColumn = await getAdminPasswordChangeColumn(db);
   const createdAtExpr = adminUserColumns.has("created_at") ? "created_at" : "'' AS created_at";
   const updatedAtExpr = adminUserColumns.has("updated_at") ? "updated_at" : "'' AS updated_at";
 
@@ -21,7 +20,7 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     .prepare(
       `SELECT id, email, role,
               COALESCE(is_active,1) AS is_active,
-              COALESCE(${passwordChangeColumn},0) AS must_change_password,
+              COALESCE(must_change_password,0) AS must_change_password,
               ${createdAtExpr}, ${updatedAtExpr}
        FROM admins
        ORDER BY ${adminUserColumns.has("created_at") ? "created_at DESC" : "email ASC"}`

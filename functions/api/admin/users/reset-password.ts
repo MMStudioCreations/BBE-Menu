@@ -1,5 +1,5 @@
 import { hashPassword, json } from "../../auth/_utils";
-import { ensureAdminAuthSchema, getAdminPasswordChangeColumn, requirePasswordReady, requireSuperAdmin } from "../_auth";
+import { ensureAdminAuthSchema, requirePasswordReady, requireSuperAdmin } from "../_auth";
 
 export const onRequestPost: PagesFunction = async ({ request, env }) => {
   const auth = await requireSuperAdmin(request, env);
@@ -19,12 +19,11 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
   const db = env.DB as D1Database;
   await ensureAdminAuthSchema(db);
 
-  const passwordChangeColumn = await getAdminPasswordChangeColumn(db);
 
   const result = await db
     .prepare(
       `UPDATE admins
-       SET password_hash = ?, ${passwordChangeColumn} = 1, updated_at = datetime('now')
+       SET password_hash = ?, must_change_password = 1, updated_at = datetime('now')
        WHERE lower(email) = lower(?)`
     )
     .bind(await hashPassword(newPassword), email)
