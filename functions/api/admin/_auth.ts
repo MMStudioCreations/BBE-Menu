@@ -11,6 +11,21 @@ export type AdminAuth = {
 export async function ensureAdminAuthSchema(db: D1Database) {
   await db
     .prepare(
+      `CREATE TABLE IF NOT EXISTS admin_users (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'admin',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        force_password_change INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT,
+        updated_at TEXT
+      )`
+    )
+    .run();
+
+  await db
+    .prepare(
       "CREATE TABLE IF NOT EXISTS admin_sessions (id TEXT PRIMARY KEY, admin_id TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL)"
     )
     .run();
@@ -35,11 +50,32 @@ export async function ensureAdminAuthSchema(db: D1Database) {
     "force_password_change",
     "ALTER TABLE admin_users ADD COLUMN force_password_change INTEGER NOT NULL DEFAULT 1"
   );
-  await addCol("created_at", "ALTER TABLE admin_users ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime('now'))");
-  await addCol("updated_at", "ALTER TABLE admin_users ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))");
+
+  // D1/SQLite rejects ALTER TABLE ADD COLUMN with non-constant defaults
+  // (e.g. DEFAULT (datetime('now'))), so add timestamp columns as nullable.
+  await addCol("created_at", "ALTER TABLE admin_users ADD COLUMN created_at TEXT");
+  await addCol("updated_at", "ALTER TABLE admin_users ADD COLUMN updated_at TEXT");
+
+  await db
+    .prepare(
+      `UPDATE admin_users
+       SET created_at = COALESCE(created_at, datetime('now')),
+           updated_at = COALESCE(updated_at, datetime('now'))
+       WHERE created_at IS NULL OR updated_at IS NULL`
+    )
+    .run();
 }
 
 async function getSessionAdminFromSessions(db: D1Database, sessionId: string): Promise<any | null> {
+  const sessionsInfo = await db.prepare("PRAGMA table_info(sessions)").all<any>();
+  const sessionColumns = new Set((sessionsInfo.results || []).map((r: any) => String(r?.name || "").toLowerCase()));
+
+  // If the table is missing or doesn't have an admin session schema, skip this path.
+  if (!sessionColumns.size) return null;
+  if (!sessionColumns.has("admin_user_id")) return null;
+  if (!sessionColumns.has("session_type")) return null;
+  if (!sessionColumns.has("expires_at")) return null;
+
   return db
     .prepare(
       `SELECT a.id, a.email, a.role, COALESCE(a.is_active,1) AS is_active,
@@ -70,7 +106,11 @@ async function getSessionAdminFromLegacySessions(db: D1Database, sessionId: stri
 export async function getAdminFromRequest(request: Request, env: any): Promise<AdminAuth | null> {
   const db = env.DB as D1Database;
   if (!db) return null;
-  await ensureAdminAuthSchema(db);
+  try {
+    await ensureAdminAuthSchema(db);
+  } catch {
+    return null;
+  }
 
   const sessionId =
     getCookie(request, "bb_admin_session") ||
@@ -79,9 +119,15 @@ export async function getAdminFromRequest(request: Request, env: any): Promise<A
     getCookie(request, "bb_session");
   if (!sessionId) return null;
 
-  const admin =
-    (await getSessionAdminFromSessions(db, sessionId)) ||
-    (await getSessionAdminFromLegacySessions(db, sessionId));
+  let admin: any | null = null;
+  try {
+    admin = await getSessionAdminFromSessions(db, sessionId);
+  } catch {
+    admin = null;
+  }
+  if (!admin) {
+    admin = await getSessionAdminFromLegacySessions(db, sessionId);
+  }
 
   if (!admin) return null;
   if (Number(admin.is_active) !== 1) return null;

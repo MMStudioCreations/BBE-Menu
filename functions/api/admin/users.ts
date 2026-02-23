@@ -11,14 +11,19 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
   const db = env.DB as D1Database;
   await ensureAdminAuthSchema(db);
 
+  const adminUsersInfo = await db.prepare("PRAGMA table_info(admin_users)").all<any>();
+  const adminUserColumns = new Set((adminUsersInfo.results || []).map((r: any) => String(r?.name || "").toLowerCase()));
+  const createdAtExpr = adminUserColumns.has("created_at") ? "created_at" : "'' AS created_at";
+  const updatedAtExpr = adminUserColumns.has("updated_at") ? "updated_at" : "'' AS updated_at";
+
   const { results } = await db
     .prepare(
       `SELECT id, email, role,
               COALESCE(is_active,1) AS is_active,
               COALESCE(force_password_change,0) AS force_password_change,
-              created_at, updated_at
+              ${createdAtExpr}, ${updatedAtExpr}
        FROM admin_users
-       ORDER BY created_at DESC`
+       ORDER BY ${adminUserColumns.has("created_at") ? "created_at DESC" : "email ASC"}`
     )
     .all<any>();
 
