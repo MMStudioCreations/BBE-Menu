@@ -255,11 +255,11 @@ async function uploadProductImage() {
 
   const fd = new FormData();
   fd.append("file", fileInput.files[0]);
-  fd.append("product_id", form.id);
+  fd.append("product_id", String(form.id));
 
   state.products.uploading = true;
   try {
-    const res = await fetch("/api/admin/products/upload-image", {
+    const res = await fetch("/api/admin/products/upload-image?debug=1", {
       method: "POST",
       credentials: "include",
       body: fd,
@@ -272,7 +272,10 @@ async function uploadProductImage() {
       throw new Error(res.ok ? "Unexpected server response" : "Upload failed: invalid server response");
     }
     if (!res.ok) {
-      throw new Error(String(d.error || d.msg || `Upload failed (${res.status})`));
+      const parts = [String(d.error || d.msg || `Upload failed (${res.status})`)];
+      if (d.step) parts.push(`step=${d.step}`);
+      if (d.detail) parts.push(String(d.detail));
+      throw new Error(parts.join(" | "));
     }
 
     state.products.form.image_key = d.key || "";
