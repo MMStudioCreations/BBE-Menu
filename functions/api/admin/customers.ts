@@ -63,6 +63,7 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
         COALESCE(u.tier_override, u.tier, 'member') AS effectiveTier,
         COALESCE(u.points_balance, 0) AS points_balance,
         COALESCE(u.lifetime_spend_cents, 0) AS lifetime_spend_cents,
+        COALESCE((SELECT COUNT(1) FROM orders o WHERE o.user_id = u.id), 0) AS orders_count,
         u.created_at
       FROM users u
       ${join}

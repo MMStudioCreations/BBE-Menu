@@ -12,6 +12,27 @@ const state = {
     saving: false,
     uploading: false,
   },
+  orders: {
+    items: [],
+    selectedId: null,
+    loading: false,
+    error: "",
+    filters: { query: "", status: "all", range: "7d" },
+  },
+  customers: {
+    items: [],
+    selectedId: null,
+    loading: false,
+    error: "",
+    filters: { query: "", sort: "newest" },
+  },
+  verification: {
+    items: [],
+    selectedId: null,
+    loading: false,
+    error: "",
+    filters: { query: "", status: "all" },
+  },
 };
 
 const navItems = [["dashboard", "Dashboard"], ["csm", "CSM Dashboard"], ["orders", "Orders"], ["customers", "Customers"], ["products", "Products"], ["verification", "Verification"]];
@@ -29,12 +50,36 @@ async function api(path, opts = {}) {
   const text = await res.text();
   let data = {};
   try { data = text ? JSON.parse(text) : {}; } catch { throw new Error(res.ok ? "Unexpected server response" : "Server error – check logs"); }
-  if (!res.ok) throw new Error(data.error || data.msg || data.code || `Request failed (${res.status})`);
+  if (!res.ok) {
+    const raw = String(data.error || data.msg || data.code || `Request failed (${res.status})`);
+    if (/forbidden/i.test(raw)) throw new Error("You do not have access to this admin resource.");
+    throw new Error(raw);
+  }
   return data;
 }
 
 function money(cents) { return `$${(Number(cents || 0) / 100).toFixed(2)}`; }
 function esc(v) { return String(v ?? "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m])); }
+function fmtDate(v) { return v ? new Date(v).toLocaleString() : "-"; }
+function statusBadge(status = "") { const s = String(status || "").toLowerCase(); const tone = ["approved", "completed", "active"].includes(s) ? "green" : ["cancelled", "denied", "reject", "inactive"].includes(s) ? "red" : ""; return `<span class="badge ${tone}">${esc(status || "pending")}</span>`; }
+function splitToolbar({ searchId, searchValue, searchPlaceholder, controls = "", refreshId }) { return `<div class="split-toolbar"><input id="${searchId}" type="search" placeholder="${esc(searchPlaceholder)}" value="${esc(searchValue)}" />${controls}<button id="${refreshId}" class="btn">Refresh</button></div>`; }
+function stateBanner(loading, error, empty, retryId) {
+  if (loading) return `<div class="card muted">Loading…</div>`;
+  if (error) return `<div class="card error-card">Unable to load data. ${esc(error)} <button id="${retryId}" class="btn btn-small">Retry</button></div>`;
+  if (empty) return `<div class="card muted">No records found.</div>`;
+  return "";
+}
+function parseCartItems(cartJson) {
+  if (!cartJson) return { items: [], error: "" };
+  try {
+    const parsed = typeof cartJson === "string" ? JSON.parse(cartJson) : cartJson;
+    if (Array.isArray(parsed)) return { items: parsed, error: "" };
+    if (parsed && Array.isArray(parsed.items)) return { items: parsed.items, error: "" };
+    return { items: [], error: "" };
+  } catch {
+    return { items: [], error: "Unable to parse cart" };
+  }
+}
 
 function setWorkspaceVisible(visible) {
   $(".sidebar").hidden = !visible;
@@ -310,9 +355,100 @@ function renderNav() {
 
 async function panelDashboard() { const range = $("#globalRange").value; const q = new URLSearchParams({ range }); if (range === "custom") { q.set("start", $("#customStart").value); q.set("end", $("#customEnd").value); } const d = await api(`/api/admin/dashboard?${q.toString()}`); const m = d.metrics || {}; return `<div class="dashboard-controls"><h2>Dashboard</h2><span class="muted">${esc(d.range.start)} → ${esc(d.range.end)}</span></div><div class="cards"><div class="card"><div class="muted">Revenue (Completed)</div><h3>${money(m.revenue_completed_cents)}</h3></div><div class="card"><div class="muted">Pending</div><h3>${money(m.pending_cents)}</h3></div><div class="card"><div class="muted">Cancelled</div><h3>${money(m.cancelled_cents)}</h3></div><div class="card"><div class="muted">AOV (Completed)</div><h3>${money(m.aov_completed_cents)}</h3></div></div>`; }
 async function panelCsm() { const [dashboard, totalUsers, activeUsers, pendingVerification] = await Promise.all([api(`/api/admin/dashboard?range=7d`), api(`/api/admin/customers?limit=1`).catch(() => ({ customers: [] })), api(`/api/admin/customers?active=1&limit=1`).catch(() => ({ customers: [] })), api(`/api/admin/verification/pending`).catch(() => ({ users: [] }))]); const m = dashboard.metrics || {}; return `<div class="dashboard-controls"><h2>CSM Dashboard</h2><span class="muted">Customer lifecycle summary</span></div><div class="cards"><div class="card"><div class="muted">Total Users</div><h3>${Number(dashboard.totalUsers || totalUsers.customers?.length || 0)}</h3></div><div class="card"><div class="muted">Active Users</div><h3>${Number(dashboard.activeUsers || activeUsers.customers?.length || 0)}</h3></div><div class="card"><div class="muted">Orders (7d)</div><h3>${Number(dashboard.ordersLast7Days || m.orders_completed_count || 0)}</h3></div><div class="card"><div class="muted">Pending Verification</div><h3>${Number(dashboard.pendingVerification || pendingVerification.users?.length || 0)}</h3></div></div>`; }
-async function panelOrders() { const q = encodeURIComponent($("#globalSearch").value || ""); const d = await api(`/api/admin/orders?query=${q}`); return `<h2>Orders</h2><div class="table-wrap"><table><thead><tr><th>ID</th><th>Status</th><th>Total</th><th>Created</th></tr></thead><tbody>${(d.orders || []).map((o) => `<tr class='clickable-row order-row' data-id='${o.id}'><td>${esc(o.id)}</td><td>${esc(o.status)}</td><td>${money(o.total_cents)}</td><td>${esc(o.created_at)}</td></tr>`).join("")}</tbody></table></div>`; }
-async function panelCustomers() { const q = encodeURIComponent($("#globalSearch").value || ""); const d = await api(`/api/admin/customers?query=${q}`); return `<h2>Customers</h2><div class='table-wrap'><table><thead><tr><th>Email</th><th>Status</th><th>Lifetime Spend</th></tr></thead><tbody>${(d.customers || []).map((c) => `<tr class='clickable-row customer-row' data-id='${c.id}'><td>${esc(c.email)}</td><td>${esc(c.account_status)}</td><td>${money(c.lifetime_spend_cents)}</td></tr>`).join("")}</tbody></table></div>`; }
-async function panelVerification() { const d = await api(`/api/admin/verification/pending`); return `<h2>Verification</h2><div class='table-wrap'><table><thead><tr><th>User</th><th>Status</th><th>Updated</th></tr></thead><tbody>${(d.users || []).map((u) => `<tr><td>${esc(u.email)}</td><td>${esc(u.account_status || "pending")}</td><td>${esc(u.updated_at || "")}</td></tr>`).join("")}</tbody></table></div>`; }
+async function loadOrders() {
+  state.orders.loading = true; state.orders.error = "";
+  const params = new URLSearchParams();
+  if (state.orders.filters.status && state.orders.filters.status !== "all") params.set("status", state.orders.filters.status);
+  if (state.orders.filters.query) params.set("query", state.orders.filters.query);
+  const rangeMap = { "7d": 7, "30d": 30, "90d": 90 };
+  const days = rangeMap[state.orders.filters.range] || 7;
+  const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  params.set("dateFrom", from);
+  try {
+    const d = await api(`/api/admin/orders?${params.toString()}`);
+    state.orders.items = d.orders || [];
+    if (!state.orders.selectedId && state.orders.items.length) state.orders.selectedId = state.orders.items[0].id;
+    if (state.orders.selectedId && !state.orders.items.some((o) => o.id === state.orders.selectedId)) state.orders.selectedId = state.orders.items[0]?.id || null;
+  } catch (e) { state.orders.error = e.message; state.orders.items = []; }
+  finally { state.orders.loading = false; }
+}
+function renderOrderDetail(order) {
+  if (!order) return `<div class="card muted">Select an order to view details.</div>`;
+  const customerName = [order.customer_name, order.first_name, order.last_name].filter(Boolean).join(" ").trim();
+  const parsed = parseCartItems(order.cart_json);
+  return `<div class="detail-head"><h3>Order ${esc(order.id)}</h3>${statusBadge(order.status)}</div>
+    <section class="detail-section"><h4>Summary</h4><div class="kv-grid"><div><span class="muted">Order ID</span><strong>${esc(order.id)}</strong></div><div><span class="muted">Created</span><strong>${esc(fmtDate(order.created_at))}</strong></div></div></section>
+    <section class="detail-section"><h4>Financials</h4><div class="kv-grid"><div><span class="muted">Subtotal</span><strong>${money(order.subtotal_cents)}</strong></div><div><span class="muted">Tax</span><strong>${money(order.tax_cents)}</strong></div><div><span class="muted">Total</span><strong>${money(order.total_cents)}</strong></div><div><span class="muted">Points earned</span><strong>${Number(order.points_earned || 0)}</strong></div><div><span class="muted">Points redeemed</span><strong>${Number(order.points_redeemed || 0)}</strong></div><div><span class="muted">Credit used</span><strong>${money(order.credit_used_cents)}</strong></div></div></section>
+    <section class="detail-section"><h4>Customer</h4><div class="kv-grid"><div><span class="muted">Name</span><strong>${esc(customerName || "-")}</strong></div><div><span class="muted">Email</span><strong>${esc(order.customer_email || "-")}</strong></div><div><span class="muted">Phone</span><strong>${esc(order.customer_phone || "-")}</strong></div></div></section>
+    <section class="detail-section"><h4>Delivery</h4><div class="kv-grid"><div><span class="muted">Method</span><strong>${esc(order.delivery_method || "-")}</strong></div><div><span class="muted">Address</span><strong>${esc(order.address_json || "-")}</strong></div></div></section>
+    <section class="detail-section"><h4>Items</h4>${parsed.error ? `<div class="muted">${parsed.error}</div>` : `<div class="table-wrap"><table><thead><tr><th>Name</th><th>Variant</th><th>Qty</th><th>Price</th></tr></thead><tbody>${(parsed.items || []).map((it) => `<tr><td>${esc(it.name || it.title || "-")}</td><td>${esc(it.variant || it.size || it.label || "-")}</td><td>${Number(it.qty || it.quantity || 0)}</td><td>${money(it.price_cents ?? Math.round(Number(it.price || 0) * 100))}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">No items found.</td></tr>`}</tbody></table></div>`}</section>
+    ${String(order.status || "").toLowerCase() !== "cancelled" ? `<div class="detail-actions"><button id="cancelOrderBtn" class="btn danger" data-order-id="${esc(order.id)}">Cancel Order</button></div>` : ""}`;
+}
+async function panelOrders() {
+  await loadOrders();
+  const statuses = Array.from(new Set(state.orders.items.map((o) => String(o.status || "pending").toLowerCase()))).sort();
+  const list = state.orders.items.filter((o) => {
+    const q = state.orders.filters.query.toLowerCase();
+    if (!q) return true;
+    return String(o.id || "").toLowerCase().includes(q) || String(o.customer_email || "").toLowerCase().includes(q);
+  });
+  const selected = list.find((o) => o.id === state.orders.selectedId) || null;
+  return `<div class="split-shell">
+    ${splitToolbar({ searchId: "ordersSearch", searchValue: state.orders.filters.query, searchPlaceholder: "Search by order ID or email", controls: `<select id="ordersStatusFilter"><option value="all">All statuses</option>${statuses.map((s) => `<option value="${esc(s)}" ${state.orders.filters.status === s ? "selected" : ""}>${esc(s)}</option>`).join("")}</select><select id="ordersRangeFilter"><option value="7d" ${state.orders.filters.range === "7d" ? "selected" : ""}>7 days</option><option value="30d" ${state.orders.filters.range === "30d" ? "selected" : ""}>30 days</option><option value="90d" ${state.orders.filters.range === "90d" ? "selected" : ""}>90 days</option></select>`, refreshId: "ordersRefreshBtn" })}
+    ${stateBanner(state.orders.loading, state.orders.error, !list.length, "ordersRetryBtn")}
+    <div class="split-content"><aside class="split-list panel">${list.map((o) => `<button class="split-row order-row ${state.orders.selectedId === o.id ? "active" : ""}" data-id="${o.id}"><div><strong>${esc(o.id.slice(0, 8))}</strong> ${statusBadge(o.status)}</div><div class="muted">${esc(fmtDate(o.created_at))}</div><div>${money(o.total_cents)} · ${esc(o.customer_email || o.customer_name || "-")}</div></button>`).join("")}</aside><section class="split-detail panel">${renderOrderDetail(selected)}</section></div>
+  </div>`;
+}
+async function loadCustomers() {
+  state.customers.loading = true; state.customers.error = "";
+  try {
+    const d = await api(`/api/admin/customers`);
+    const all = d.customers || [];
+    const q = state.customers.filters.query.toLowerCase();
+    state.customers.items = all.filter((c) => !q || String(c.email || "").toLowerCase().includes(q) || `${c.first_name || ""} ${c.last_name || ""}`.toLowerCase().includes(q));
+    if (state.customers.filters.sort === "lifetime") state.customers.items.sort((a, b) => Number(b.lifetime_spend_cents || 0) - Number(a.lifetime_spend_cents || 0));
+    if (!state.customers.selectedId && state.customers.items.length) state.customers.selectedId = state.customers.items[0].id;
+    if (state.customers.selectedId && !state.customers.items.some((c) => c.id === state.customers.selectedId)) state.customers.selectedId = state.customers.items[0]?.id || null;
+  } catch (e) { state.customers.error = e.message; state.customers.items = []; }
+  finally { state.customers.loading = false; }
+}
+async function panelCustomers() {
+  await loadCustomers();
+  const selected = state.customers.items.find((c) => c.id === state.customers.selectedId);
+  let detail = `<div class="card muted">Select a customer to view details.</div>`;
+  if (selected) {
+    const data = await api(`/api/admin/customers/${selected.id}`).catch(() => null);
+    const c = data?.customer || selected;
+    detail = `<div class="detail-head"><h3>${esc(c.email || "Customer")}</h3>${statusBadge(c.account_status)}</div>
+      <section class="detail-section"><h4>Profile</h4><div class="kv-grid"><div><span class="muted">Email</span><strong>${esc(c.email || "-")}</strong></div><div><span class="muted">Name</span><strong>${esc(`${c.first_name || ""} ${c.last_name || ""}`.trim() || "-")}</strong></div><div><span class="muted">Phone</span><strong>${esc(c.phone || "-")}</strong></div><div><span class="muted">Created</span><strong>${esc(fmtDate(c.created_at))}</strong></div></div></section>
+      <section class="detail-section"><h4>Spend & loyalty</h4><div class="kv-grid"><div><span class="muted">Lifetime spend</span><strong>${money(c.lifetime_spend_cents)}</strong></div><div><span class="muted">Orders</span><strong>${Number(c.orders_count || 0)}</strong></div><div><span class="muted">Points balance</span><strong>${Number(c.points_balance || 0)}</strong></div></div></section>`;
+  }
+  return `<div class="split-shell">${splitToolbar({ searchId: "customersSearch", searchValue: state.customers.filters.query, searchPlaceholder: "Search by email or name", controls: `<select id="customersSort"><option value="newest" ${state.customers.filters.sort === "newest" ? "selected" : ""}>Newest</option><option value="lifetime" ${state.customers.filters.sort === "lifetime" ? "selected" : ""}>Lifetime spend</option></select>`, refreshId: "customersRefreshBtn" })}${stateBanner(state.customers.loading, state.customers.error, !state.customers.items.length, "customersRetryBtn")}<div class="split-content"><aside class="split-list panel">${state.customers.items.map((c) => `<button class="split-row customer-row ${state.customers.selectedId === c.id ? "active" : ""}" data-id="${c.id}"><strong>${esc(c.email || "-")}</strong><div class="muted">Spend ${money(c.lifetime_spend_cents)} · Orders ${Number(c.orders_count || 0)}</div><div>Points ${Number(c.points_balance || 0)}</div></button>`).join("")}</aside><section class="split-detail panel">${detail}</section></div></div>`;
+}
+async function loadVerification() {
+  state.verification.loading = true; state.verification.error = "";
+  try {
+    const d = await api(`/api/admin/verifications`);
+    const q = state.verification.filters.query.toLowerCase();
+    state.verification.items = (d.verifications || []).filter((u) => {
+      const status = String(u.account_status || "pending").toLowerCase();
+      const statusMatch = state.verification.filters.status === "all" || status === state.verification.filters.status;
+      const qMatch = !q || `${u.email || ""} ${u.first_name || ""} ${u.last_name || ""}`.toLowerCase().includes(q);
+      return statusMatch && qMatch;
+    });
+    if (!state.verification.selectedId && state.verification.items.length) state.verification.selectedId = state.verification.items[0].user_id;
+    if (state.verification.selectedId && !state.verification.items.some((v) => v.user_id === state.verification.selectedId)) state.verification.selectedId = state.verification.items[0]?.user_id || null;
+  } catch (e) { state.verification.error = e.message; state.verification.items = []; }
+  finally { state.verification.loading = false; }
+}
+async function panelVerification() {
+  await loadVerification();
+  const selected = state.verification.items.find((v) => v.user_id === state.verification.selectedId);
+  const statuses = Array.from(new Set(state.verification.items.map((v) => String(v.account_status || "pending").toLowerCase())));
+  const fields = selected ? Object.entries(selected).filter(([k]) => !["user_id", "email", "first_name", "last_name", "account_status", "updated_at", "created_at", "phone", "status_reason"].includes(k)) : [];
+  const detail = selected ? `<div class="detail-head"><h3>${esc(`${selected.first_name || ""} ${selected.last_name || ""}`.trim() || selected.email || "Applicant")}</h3>${statusBadge(selected.account_status || "pending")}</div><section class="detail-section"><h4>Applicant</h4><div class="kv-grid"><div><span class="muted">Name</span><strong>${esc(`${selected.first_name || ""} ${selected.last_name || ""}`.trim() || "-")}</strong></div><div><span class="muted">Email</span><strong>${esc(selected.email || "-")}</strong></div><div><span class="muted">Phone</span><strong>${esc(selected.phone || "-")}</strong></div></div></section><section class="detail-section"><h4>Submission</h4><div class="kv-grid"><div><span class="muted">Submitted</span><strong>${esc(fmtDate(selected.updated_at || selected.created_at))}</strong></div><div><span class="muted">Notes</span><strong>${esc(selected.status_reason || "-")}</strong></div></div></section>${fields.length ? `<section class="detail-section"><h4>Stored fields</h4><div class="kv-list">${fields.map(([k, v]) => `<div><span class="muted">${esc(k)}</span><strong>${esc(v ?? "-")}</strong></div>`).join("")}</div></section>` : ""}<div class="detail-actions"><button id="verificationApproveBtn" class="btn btn-gold" data-id="${esc(selected.user_id)}">Approve</button><button id="verificationDenyBtn" class="btn danger" data-id="${esc(selected.user_id)}">Deny</button></div>` : `<div class="card muted">Select an application to view details.</div>`;
+  return `<div class="split-shell">${splitToolbar({ searchId: "verificationSearch", searchValue: state.verification.filters.query, searchPlaceholder: "Search applicant", controls: `<select id="verificationStatus"><option value="all">All statuses</option>${statuses.map((s) => `<option value="${esc(s)}" ${state.verification.filters.status === s ? "selected" : ""}>${esc(s)}</option>`).join("")}</select>`, refreshId: "verificationRefreshBtn" })}${stateBanner(state.verification.loading, state.verification.error, !state.verification.items.length, "verificationRetryBtn")}<div class="split-content"><aside class="split-list panel">${state.verification.items.map((u) => `<button class="split-row verification-row ${state.verification.selectedId === u.user_id ? "active" : ""}" data-id="${u.user_id}"><strong>${esc(`${u.first_name || ""} ${u.last_name || ""}`.trim() || u.email || "-")}</strong><div>${esc(u.email || "-")}</div><div class="muted">${esc(fmtDate(u.updated_at || u.created_at))} · ${statusBadge(u.account_status || "pending")}</div></button>`).join("")}</aside><section class="split-detail panel">${detail}</section></div></div>`;
+}
 async function panelAdminUsers() { const d = await api("/api/admin/users"); const admins = d.admins || []; return `<div style='display:flex;justify-content:space-between;align-items:center;'><h2>Admin Users</h2><button id='newAdminBtn' class='btn btn-gold'>Create Admin</button></div><div class='table-wrap'><table><thead><tr><th>Email</th><th>Active</th><th>Role</th><th>Must Change Password</th><th>Password Updated</th></tr></thead><tbody>${admins.map((a) => `<tr><td>${esc(a.email)}</td><td>${Number(a.is_active) ? "Yes" : "No"}</td><td>${esc(a.role || "admin")}</td><td>${Number(a.must_change_password) ? "Yes" : "No"}</td><td>${esc(a.password_updated_at || "")}</td></tr>`).join("")}</tbody></table></div>`; }
 
 async function renderApp() {
@@ -328,11 +464,48 @@ async function renderApp() {
 }
 
 function bindPanelEvents() {
-  document.querySelectorAll(".order-row").forEach((r) => r.onclick = async () => openDrawer("Order", await api(`/api/admin/orders/${r.dataset.id}`)));
-  document.querySelectorAll(".customer-row").forEach((r) => r.onclick = async () => openDrawer("Customer", await api(`/api/admin/customers/${r.dataset.id}`)));
+  document.querySelectorAll(".order-row").forEach((r) => r.onclick = async () => { state.orders.selectedId = r.dataset.id; await renderApp(); });
+  document.querySelectorAll(".customer-row").forEach((r) => r.onclick = async () => { state.customers.selectedId = r.dataset.id; await renderApp(); });
+  document.querySelectorAll(".verification-row").forEach((r) => r.onclick = async () => { state.verification.selectedId = r.dataset.id; await renderApp(); });
+
+  const wire = (id, handler) => { const el = $(id); if (el) el.onchange = handler; };
+  wire("#ordersSearch", async (e) => { state.orders.filters.query = e.target.value.trim(); await renderApp(); });
+  wire("#ordersStatusFilter", async (e) => { state.orders.filters.status = e.target.value; await renderApp(); });
+  wire("#ordersRangeFilter", async (e) => { state.orders.filters.range = e.target.value; await renderApp(); });
+  wire("#customersSearch", async (e) => { state.customers.filters.query = e.target.value.trim(); await renderApp(); });
+  wire("#customersSort", async (e) => { state.customers.filters.sort = e.target.value; await renderApp(); });
+  wire("#verificationSearch", async (e) => { state.verification.filters.query = e.target.value.trim(); await renderApp(); });
+  wire("#verificationStatus", async (e) => { state.verification.filters.status = e.target.value; await renderApp(); });
+
+  ["#ordersRefreshBtn", "#customersRefreshBtn", "#verificationRefreshBtn", "#ordersRetryBtn", "#customersRetryBtn", "#verificationRetryBtn"].forEach((id) => {
+    const el = $(id);
+    if (el) el.onclick = () => renderApp();
+  });
+
+  const cancel = $("#cancelOrderBtn");
+  if (cancel) cancel.onclick = async () => {
+    await api(`/api/admin/orders/${cancel.dataset.orderId}/status`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: "cancelled" }) });
+    toast("Order cancelled.");
+    await renderApp();
+  };
+
+  const approve = $("#verificationApproveBtn");
+  if (approve) approve.onclick = async () => {
+    await api("/api/admin/verification-action", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_id: approve.dataset.id, action: "approve" }) });
+    toast("Verification approved.");
+    await renderApp();
+  };
+  const deny = $("#verificationDenyBtn");
+  if (deny) deny.onclick = async () => {
+    await api("/api/admin/verification-action", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_id: deny.dataset.id, action: "deny" }) });
+    toast("Verification denied.");
+    await renderApp();
+  };
+
   const n = $("#newAdminBtn");
   if (n) n.onclick = async () => { const email = prompt("Admin email"); if (!email) return; const tempPassword = prompt("Temp password (min 8 chars)"); if (!tempPassword) return; const role = prompt("Role (superadmin/admin)") || "admin"; await api("/api/admin/users", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, tempPassword, role }) }); renderApp(); };
 }
+
 
 async function init() {
   const requestedView = (new URL(window.location.href)).searchParams.get("view");
