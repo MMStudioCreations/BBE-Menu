@@ -254,20 +254,34 @@ async function uploadProductImage() {
   }
 
   const fd = new FormData();
-  fd.set("file", fileInput.files[0]);
-  fd.set("product_id", form.id);
+  fd.append("file", fileInput.files[0]);
+  fd.append("product_id", form.id);
 
   state.products.uploading = true;
   try {
-    const d = await api("/api/admin/products/upload-image", { method: "POST", body: fd });
+    const res = await fetch("/api/admin/products/upload-image", {
+      method: "POST",
+      credentials: "include",
+      body: fd,
+    });
+    const text = await res.text();
+    let d = {};
+    try {
+      d = text ? JSON.parse(text) : {};
+    } catch {
+      throw new Error(res.ok ? "Unexpected server response" : "Upload failed: invalid server response");
+    }
+    if (!res.ok) {
+      throw new Error(String(d.error || d.msg || `Upload failed (${res.status})`));
+    }
+
     state.products.form.image_key = d.key || "";
     state.products.form.image_url = d.url || "";
     state.products.form.image_path = d.url || "";
-    toast("Image uploaded. Click Save to persist.");
-    $("#workspace").innerHTML = renderProductsPanelHtml();
-    bindProductsEvents();
+    await saveProduct();
+    toast("Image uploaded and product updated.");
   } catch (e) {
-    toast(e.message, "error");
+    toast(e?.message || "Image upload failed.", "error");
   } finally {
     state.products.uploading = false;
   }
