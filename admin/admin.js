@@ -278,6 +278,12 @@ async function uploadProductImage() {
     state.products.form.image_key = d.key || "";
     state.products.form.image_url = d.url || "";
     state.products.form.image_path = d.url || "";
+
+    const preview = document.querySelector(".product-image-card > div");
+    if (preview) {
+      preview.innerHTML = productImagePreview(state.products.form);
+    }
+
     await saveProduct();
     toast("Image uploaded and product updated.");
   } catch (e) {
