@@ -19,10 +19,11 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
   const db = env.DB as D1Database;
   await ensureAdminAuthSchema(db);
 
+
   const result = await db
     .prepare(
-      `UPDATE admin_users
-       SET password_hash = ?, force_password_change = 1, updated_at = datetime('now')
+      `UPDATE admins
+       SET password_hash = ?, must_change_password = 1, updated_at = datetime('now')
        WHERE lower(email) = lower(?)`
     )
     .bind(await hashPassword(newPassword), email)
