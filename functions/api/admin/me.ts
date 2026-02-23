@@ -1,74 +1,95 @@
-import { getCookie } from "../auth/_utils";
-import { ensureAdminAuthSchema, getAdminPasswordChangeColumn } from "./_auth";
+import { getCookie, json } from "../auth/_utils";
+import { ensureAdminAuthSchema } from "./_auth";
 
-const CLEAR_COOKIE = "bb_admin_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0";
+function clearCookie(name: string) {
+  return `${name}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
+}
 
-function jsonResponse(payload: unknown, status = 200, headers?: HeadersInit) {
-  const baseHeaders = new Headers({
-    "content-type": "application/json; charset=utf-8",
-    "cache-control": "no-store",
-  });
-
-  if (headers) {
-    const extras = new Headers(headers);
-    extras.forEach((value, key) => baseHeaders.append(key, value));
+function parseDateMs(value: unknown): number | null {
+  if (!value) return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const n = Number(value);
+    if (Number.isFinite(n) && !Number.isNaN(n)) return n;
+    const ms = Date.parse(value);
+    if (!Number.isNaN(ms)) return ms;
   }
-
-  return new Response(JSON.stringify(payload), { status, headers: baseHeaders });
+  return null;
 }
 
 export const onRequestGet: PagesFunction = async ({ request, env }) => {
-  const db = env.DB as D1Database | undefined;
-  if (!db) return jsonResponse({ ok: false, error: "db_missing" }, 500);
+  const db = env?.DB as D1Database | undefined;
+  if (!db) return json({ ok: false, error: "db_missing" }, 500);
 
   await ensureAdminAuthSchema(db);
 
-  const sessionId = getCookie(request, "bb_admin_session");
+  const sessionId =
+    getCookie(request, "bb_admin_session") ||
+    getCookie(request, "admin_session") ||
+    getCookie(request, "bbe_admin_session");
+
   if (!sessionId) {
-    return jsonResponse({ ok: false, error: "unauthorized" }, 401, { "set-cookie": CLEAR_COOKIE });
+    return new Response(JSON.stringify({ ok: false, error: "unauthorized" }), {
+      status: 401,
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+    });
   }
 
-  const passwordChangeColumn = await getAdminPasswordChangeColumn(db);
-
-  const session = await db
-    .prepare("SELECT id, admin_id, expires_at FROM admin_sessions WHERE id=? LIMIT 1")
-    .bind(sessionId)
-    .first<{ id: string; admin_id: string; expires_at: string }>();
-
-  if (!session || new Date(session.expires_at).getTime() <= Date.now()) {
-    return jsonResponse({ ok: false, error: "unauthorized" }, 401, { "set-cookie": CLEAR_COOKIE });
-  }
-
-  const admin = await db
+  const row = await db
     .prepare(
-      `SELECT a.id, a.email, COALESCE(a.role,'admin') AS role,
+      `SELECT s.id AS session_id, s.expires_at,
+              a.id, a.email,
+              COALESCE(a.role,'admin') AS role,
               COALESCE(a.is_active,1) AS is_active,
-              COALESCE(a.${passwordChangeColumn},0) AS must_change_password
-       FROM admins a
-       WHERE a.id = ?
+              COALESCE(a.force_password_change,0) AS force_password_change
+       FROM admin_sessions s
+       JOIN admins a ON a.id = s.admin_id
+       WHERE s.id = ?
        LIMIT 1`
     )
-    .bind(session.admin_id)
-    .first<{ id: string; email: string; role: string; is_active: number; must_change_password: number }>();
+    .bind(sessionId)
+    .first<any>();
 
-  if (!admin) {
-    return jsonResponse({ ok: false, error: "unauthorized" }, 401, { "set-cookie": CLEAR_COOKIE });
-  }
-
-  if (Number(admin.is_active) !== 1) {
-    return jsonResponse({ ok: false, error: "forbidden" }, 403, { "set-cookie": CLEAR_COOKIE });
-  }
-
-  return jsonResponse(
-    {
-      ok: true,
-      admin: {
-        id: admin.id,
-        email: admin.email,
-        role: admin.role,
+  if (!row) {
+    return new Response(JSON.stringify({ ok: false, error: "unauthorized" }), {
+      status: 401,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "set-cookie": clearCookie("bb_admin_session"),
       },
-      must_change_password: Number(admin.must_change_password) === 1,
-    },
-    200
-  );
+    });
+  }
+
+  const expiresMs = parseDateMs(row.expires_at);
+  if (expiresMs !== null && expiresMs <= Date.now()) {
+    try {
+      await db.prepare("DELETE FROM admin_sessions WHERE id = ?").bind(sessionId).run();
+    } catch {}
+    return new Response(JSON.stringify({ ok: false, error: "unauthorized" }), {
+      status: 401,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "set-cookie": clearCookie("bb_admin_session"),
+      },
+    });
+  }
+
+  if (Number(row.is_active ?? 1) !== 1) {
+    return new Response(JSON.stringify({ ok: false, error: "forbidden" }), {
+      status: 403,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "set-cookie": clearCookie("bb_admin_session"),
+      },
+    });
+  }
+
+  return json({
+    ok: true,
+    admin: { id: Number(row.id), email: String(row.email || ""), role: String(row.role || "admin") },
+    must_change_password: Number(row.force_password_change ?? 0) === 1,
+  });
 };

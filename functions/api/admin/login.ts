@@ -1,5 +1,5 @@
 import { verifyPassword } from "../auth/_utils";
-import { getAdminPasswordChangeColumn } from "./_auth";
+import { ensureAdminAuthSchema } from "./_auth";
 
 type LoginErrorCode =
   | "db_missing"
@@ -8,7 +8,7 @@ type LoginErrorCode =
   | "account_deactivated"
   | "login_failed";
 
-type ErrorStep = "parse_json" | "query_admins" | "verify_password" | "insert_session";
+type ErrorStep = "parse_json" | "query_admins" | "verify_password" | "insert_admin_session";
 
 function jsonResponse(payload: unknown, status = 200, headers?: HeadersInit) {
   const baseHeaders = new Headers({
@@ -24,13 +24,7 @@ function jsonResponse(payload: unknown, status = 200, headers?: HeadersInit) {
   return new Response(JSON.stringify(payload), { status, headers: baseHeaders });
 }
 
-function errorResponse(
-  request: Request,
-  status: number,
-  error: LoginErrorCode,
-  step?: ErrorStep,
-  err?: unknown
-) {
+function errorResponse(request: Request, status: number, error: LoginErrorCode, step?: ErrorStep, err?: unknown) {
   const debug = new URL(request.url).searchParams.get("debug") === "1";
   const body: Record<string, unknown> = { ok: false, error };
 
@@ -46,97 +40,58 @@ function errorResponse(
   return jsonResponse(body, status);
 }
 
-export const onRequestGet: PagesFunction = async ({ request }) => {
-  return errorResponse(request, 405, "invalid_request");
-};
-
-export const onRequestPost: PagesFunction = async ({ request, env, params }) => {
-  void params;
-
+export const onRequestPost: PagesFunction = async ({ request, env }) => {
   let step: ErrorStep | undefined;
 
   try {
-    const db = env.DB as D1Database | undefined;
-    if (!db) {
-      return jsonResponse({ ok: false, error: "db_missing" }, 500);
-    }
+    const db = env?.DB as D1Database | undefined;
+    if (!db) return jsonResponse({ ok: false, error: "db_missing" }, 500);
+
+    await ensureAdminAuthSchema(db);
 
     step = "parse_json";
-    const body = (await request.json()) as { email?: string; password?: string };
+    const body = (await request.json().catch(() => null)) as { email?: string; password?: string } | null;
     const email = String(body?.email ?? "").trim().toLowerCase();
     const password = String(body?.password ?? "");
 
-    if (!email || !password) {
-      return errorResponse(request, 400, "invalid_request", step);
-    }
+    if (!email || !password) return errorResponse(request, 400, "invalid_request", step);
 
     step = "query_admins";
-    const passwordChangeColumn = await getAdminPasswordChangeColumn(db);
-
     const admin = await db
       .prepare(
         `SELECT id, email, password_hash,
                 COALESCE(is_active,1) AS is_active,
                 COALESCE(role,'admin') AS role,
-                COALESCE(${passwordChangeColumn},0) AS must_change_password
+                COALESCE(force_password_change,0) AS force_password_change
          FROM admins
          WHERE lower(email)=lower(?)
          LIMIT 1`
       )
       .bind(email)
-      .first<{
-        id: string;
-        email: string;
-        password_hash: string;
-        is_active: number;
-        role: string;
-        must_change_password: number;
-      }>();
+      .first<any>();
 
-    if (!admin) {
-      return errorResponse(request, 401, "invalid_credentials", step);
-    }
-
-    if (Number(admin.is_active) === 0) {
-      return errorResponse(request, 403, "account_deactivated", step);
-    }
+    if (!admin) return errorResponse(request, 401, "invalid_credentials", step);
+    if (Number(admin.is_active) === 0) return errorResponse(request, 403, "account_deactivated", step);
 
     step = "verify_password";
-    const isValidPassword = await verifyPassword(password, String(admin.password_hash ?? ""));
-    if (!isValidPassword) {
-      return errorResponse(request, 401, "invalid_credentials", step);
-    }
+    const ok = await verifyPassword(password, String(admin.password_hash ?? ""));
+    if (!ok) return errorResponse(request, 401, "invalid_credentials", step);
 
-    step = "insert_session";
+    step = "insert_admin_session";
     const sessionId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
     await db
-      .prepare(
-        `CREATE TABLE IF NOT EXISTS admin_sessions (
-          id TEXT PRIMARY KEY,
-          admin_id TEXT NOT NULL,
-          expires_at TEXT NOT NULL,
-          created_at TEXT NOT NULL
-        )`
-      )
-      .run();
-
-    await db
-      .prepare(`INSERT INTO admin_sessions (id, admin_id, expires_at, created_at) VALUES (?, ?, ?, ?)`)
-      .bind(sessionId, String(admin.id), expiresAt, createdAt)
+      .prepare("INSERT INTO admin_sessions (id, admin_id, expires_at, created_at) VALUES (?, ?, ?, ?)")
+      .bind(sessionId, Number(admin.id), expiresAt, createdAt)
       .run();
 
     return jsonResponse(
       {
         ok: true,
-        admin: {
-          id: String(admin.id),
-          email: String(admin.email),
-          role: String(admin.role || "admin"),
-        },
-        must_change_password: Number(admin.must_change_password) === 1,
+        admin: { id: Number(admin.id), email: String(admin.email || ""), role: String(admin.role || "admin") },
+        must_change_password: Number(admin.force_password_change) === 1,
       },
       200,
       {
@@ -146,4 +101,8 @@ export const onRequestPost: PagesFunction = async ({ request, env, params }) => 
   } catch (err) {
     return errorResponse(request, 500, "login_failed", step, err);
   }
+};
+
+export const onRequestGet: PagesFunction = async ({ request }) => {
+  return errorResponse(request, 405, "invalid_request");
 };
