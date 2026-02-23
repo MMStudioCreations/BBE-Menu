@@ -15,11 +15,11 @@ export const onRequestGet: PagesFunction = async ({ params, env, request }) => {
     return json({ error: fallbackError }, status);
   };
 
-  const slug = String(params.slug || "").trim();
-  if (!slug) return json({ error: "Missing slug" }, 400);
+  const key = String(params.slug || "").trim();
+  if (!key) return json({ error: "Missing slug" }, 400);
 
   const excludedSlugs = new Set(["jelly-fish", "space-candy"]);
-  if (excludedSlugs.has(slug.toLowerCase())) return json({ error: "Not found" }, 404);
+  if (excludedSlugs.has(key.toLowerCase())) return json({ error: "Not found" }, 404);
 
   let product: any = null;
   try {
@@ -47,15 +47,36 @@ export const onRequestGet: PagesFunction = async ({ params, env, request }) => {
 
     product = await db
       .prepare(
-        `SELECT ${selectedColumns.join(", ")} FROM products WHERE slug = ? AND is_published = 1`
+        `SELECT ${selectedColumns.join(", ")} FROM products WHERE (lower(slug) = lower(?) OR id = ?) AND is_published = 1`
       )
-      .bind(slug)
+      .bind(key, key)
       .first<any>();
   } catch (err) {
     return sqlErrorResponse(err, "Not found");
   }
 
-  if (!product) return json({ error: "Not found" }, 404);
+  if (!product) {
+    if (isDebug) {
+      try {
+        const countRow = await db.prepare("SELECT COUNT(*) AS count FROM products").first<{ count?: number }>();
+        return json({
+          ok: false,
+          error: "not_found",
+          lookedFor: key,
+          productsCount: Number(countRow?.count ?? 0),
+        }, 404);
+      } catch {
+        return json({
+          ok: false,
+          error: "not_found",
+          lookedFor: key,
+          productsCount: null,
+        }, 404);
+      }
+    }
+
+    return json({ error: "Not found" }, 404);
+  }
 
   let variants: any[] = [];
   try {
