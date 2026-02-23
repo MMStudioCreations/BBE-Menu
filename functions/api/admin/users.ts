@@ -55,17 +55,21 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
   const db = env.DB as D1Database;
   await ensureAdminAuthSchema(db);
 
-  const insertedId = crypto.randomUUID();
+  const hashedPassword = await hashPassword(tempPassword);
+  let insertedId: number | null = null;
 
   try {
     await db
       .prepare(
         `INSERT INTO admins
-         (id, email, password_hash, role, is_active, must_change_password, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 1, 1, datetime('now'), datetime('now'))`
+         (email, password_hash, role, is_active, must_change_password, created_at, updated_at)
+         VALUES (?, ?, ?, 1, 1, datetime('now'), datetime('now'))`
       )
-      .bind(insertedId, normalizedEmail, await hashPassword(tempPassword), role)
+      .bind(normalizedEmail, hashedPassword, role)
       .run();
+
+    const row = await db.prepare("SELECT last_insert_rowid() AS id").first<{ id: number }>();
+    insertedId = Number(row?.id ?? 0) || null;
   } catch (err: any) {
     const message = String(err?.message || err || "");
     if (/unique|constraint/i.test(message) && /email/i.test(message)) {
