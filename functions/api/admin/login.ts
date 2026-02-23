@@ -19,7 +19,12 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
 
   const admin = await db
     .prepare(
-      "SELECT id,email,password_hash,role,COALESCE(is_active,1) AS is_active,COALESCE(must_change_password,0) AS must_change_password FROM admins WHERE lower(email)=lower(?) LIMIT 1"
+      `SELECT id, email, password_hash, role,
+              COALESCE(is_active,1) AS is_active,
+              COALESCE(force_password_change,0) AS force_password_change
+       FROM admin_users
+       WHERE lower(email)=lower(?)
+       LIMIT 1`
     )
     .bind(email)
     .first<any>();
@@ -42,10 +47,13 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
   const response = json(
     {
       ok: true,
+      must_change_password: Number(admin.force_password_change || 0) === 1,
+      role: String(admin.role || "admin"),
       admin: {
+        id: admin.id,
         email: String(admin.email || email),
         role: String(admin.role || "admin"),
-        mustChangePassword: Number(admin.must_change_password || 0) === 1,
+        mustChangePassword: Number(admin.force_password_change || 0) === 1,
       },
     },
     200

@@ -52,8 +52,9 @@ async function api(path, opts = {}) {
   try { data = text ? JSON.parse(text) : {}; } catch { throw new Error(res.ok ? "Unexpected server response" : "Server error – check logs"); }
   if (!res.ok) {
     const raw = String(data.error || data.msg || data.code || `Request failed (${res.status})`);
+    const detail = data.detail ? `: ${String(data.detail)}` : "";
     if (/forbidden/i.test(raw)) throw new Error("You do not have access to this admin resource.");
-    throw new Error(raw);
+    throw new Error(`${raw}${detail}`);
   }
   return data;
 }
@@ -331,16 +332,18 @@ function renderSetPassword() { /* unchanged auth views */
   const root = $("#authView");
   setWorkspaceVisible(false);
   root.hidden = false;
-  root.innerHTML = `<div class="card"><h3>Set New Password</h3><p class="muted">You must change your temporary password before continuing.</p><input id="newAdminPassword" placeholder="New password" type="password" /><input id="confirmAdminPassword" placeholder="Confirm new password" type="password" /><div id="passwordStatus" class="muted" style="min-height:18px;margin:8px 0 0;"></div><button id="setPasswordBtn" class="btn btn-gold">Update Password</button></div>`;
+  root.innerHTML = `<div class="card"><h3>Set New Password</h3><p class="muted">You must change your temporary password before continuing.</p><input id="currentAdminPassword" placeholder="Current password" type="password" /><input id="newAdminPassword" placeholder="New password" type="password" /><input id="confirmAdminPassword" placeholder="Confirm new password" type="password" /><div id="passwordStatus" class="muted" style="min-height:18px;margin:8px 0 0;"></div><button id="setPasswordBtn" class="btn btn-gold">Update Password</button></div>`;
   $("#setPasswordBtn").onclick = async () => {
     const status = $("#passwordStatus");
     status.textContent = "";
+    const current = $("#currentAdminPassword").value || "";
     const next = $("#newAdminPassword").value || "";
     const confirm = $("#confirmAdminPassword").value || "";
+    if (!current) { status.textContent = "Current password is required."; return; }
     if (next.length < 8) { status.textContent = "Password must be at least 8 characters."; return; }
     if (next !== confirm) { status.textContent = "Passwords do not match."; return; }
     try {
-      await api("/api/admin/change-password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ newPassword: next }) });
+      await api("/api/admin/users/change-password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ current_password: current, new_password: next }) });
       const me = await api("/api/admin/me");
       state.admin = me.data?.admin || me.admin;
       renderAuth();
@@ -479,7 +482,12 @@ async function panelVerification() {
   const detail = selected ? `<div class="detail-head"><h3>${esc(`${selected.first_name || ""} ${selected.last_name || ""}`.trim() || selected.email || "Applicant")}</h3>${statusBadge(selected.account_status || "pending")}</div><section class="detail-section"><h4>Applicant</h4><div class="kv-grid"><div><span class="muted">Name</span><strong>${esc(`${selected.first_name || ""} ${selected.last_name || ""}`.trim() || "-")}</strong></div><div><span class="muted">Email</span><strong>${esc(selected.email || "-")}</strong></div><div><span class="muted">Phone</span><strong>${esc(selected.phone || "-")}</strong></div></div></section><section class="detail-section"><h4>Submission</h4><div class="kv-grid"><div><span class="muted">Submitted</span><strong>${esc(fmtDate(selected.updated_at || selected.created_at))}</strong></div><div><span class="muted">Notes</span><strong>${esc(selected.status_reason || "-")}</strong></div></div></section>${fields.length ? `<section class="detail-section"><h4>Stored fields</h4><div class="kv-list">${fields.map(([k, v]) => `<div><span class="muted">${esc(k)}</span><strong>${esc(v ?? "-")}</strong></div>`).join("")}</div></section>` : ""}<div class="detail-actions"><button id="verificationApproveBtn" class="btn btn-gold" data-id="${esc(selected.user_id)}">Approve</button><button id="verificationDenyBtn" class="btn danger" data-id="${esc(selected.user_id)}">Deny</button></div>` : `<div class="card muted">Select an application to view details.</div>`;
   return `<div class="split-shell">${splitToolbar({ searchId: "verificationSearch", searchValue: state.verification.filters.query, searchPlaceholder: "Search applicant", controls: `<select id="verificationStatus"><option value="all">All statuses</option>${statuses.map((s) => `<option value="${esc(s)}" ${state.verification.filters.status === s ? "selected" : ""}>${esc(s)}</option>`).join("")}</select>`, refreshId: "verificationRefreshBtn" })}${stateBanner(state.verification.loading, state.verification.error, !state.verification.items.length, "verificationRetryBtn")}<div class="split-content"><aside class="split-list panel">${state.verification.items.map((u) => `<button class="split-row verification-row ${state.verification.selectedId === u.user_id ? "active" : ""}" data-id="${u.user_id}"><strong>${esc(`${u.first_name || ""} ${u.last_name || ""}`.trim() || u.email || "-")}</strong><div>${esc(u.email || "-")}</div><div class="muted">${esc(fmtDate(u.updated_at || u.created_at))} · ${statusBadge(u.account_status || "pending")}</div></button>`).join("")}</aside><section class="split-detail panel">${detail}</section></div></div>`;
 }
-async function panelAdminUsers() { const d = await api("/api/admin/users"); const admins = d.admins || []; return `<div style='display:flex;justify-content:space-between;align-items:center;'><h2>Admin Users</h2><button id='newAdminBtn' class='btn btn-gold'>Create Admin</button></div><div class='table-wrap'><table><thead><tr><th>Email</th><th>Active</th><th>Role</th><th>Must Change Password</th><th>Password Updated</th></tr></thead><tbody>${admins.map((a) => `<tr><td>${esc(a.email)}</td><td>${Number(a.is_active) ? "Yes" : "No"}</td><td>${esc(a.role || "admin")}</td><td>${Number(a.must_change_password) ? "Yes" : "No"}</td><td>${esc(a.password_updated_at || "")}</td></tr>`).join("")}</tbody></table></div>`; }
+async function panelAdminUsers() {
+  const d = await api("/api/admin/users");
+  const admins = d.admins || [];
+  const canManage = isSuperAdminRole(state.admin?.role);
+  return `<div style='display:flex;justify-content:space-between;align-items:center;'><h2>Admin Users</h2>${canManage ? "<button id='newAdminBtn' class='btn btn-gold'>Create Admin</button>" : ""}</div><div class='table-wrap'><table><thead><tr><th>Email</th><th>Role</th><th>Active</th><th>Must Change Password</th><th>Created</th>${canManage ? "<th>Actions</th>" : ""}</tr></thead><tbody>${admins.map((a) => `<tr><td>${esc(a.email)}</td><td>${esc(a.role || "admin")}</td><td>${Number(a.is_active) ? "Yes" : "No"}</td><td>${Number(a.force_password_change ?? a.must_change_password) ? "Yes" : "No"}</td><td>${esc(fmtDate(a.created_at))}</td>${canManage ? `<td><button class="btn btn-small admin-reset-password-btn" data-email="${esc(a.email)}">Reset Password</button></td>` : ""}</tr>`).join("")}</tbody></table></div>`;
+}
 
 async function renderApp() {
   renderNav();
@@ -590,7 +598,43 @@ function bindPanelEvents() {
   };
 
   const n = $("#newAdminBtn");
-  if (n) n.onclick = async () => { const email = prompt("Admin email"); if (!email) return; const tempPassword = prompt("Temp password (min 8 chars)"); if (!tempPassword) return; const role = prompt("Role (superadmin/admin)") || "admin"; await api("/api/admin/users", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, tempPassword, role }) }); renderApp(); };
+  if (n) n.onclick = async () => {
+    const email = prompt("Admin email");
+    if (!email) return;
+    const tempPassword = prompt("Temp password (min 8 chars)");
+    if (!tempPassword) return;
+    const roleInput = (prompt("Role (superadmin/admin)") || "admin").trim().toLowerCase();
+    const role = roleInput === "superadmin" ? "superadmin" : "admin";
+    try {
+      await api("/api/admin/users?debug=1", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, role, temp_password: tempPassword }),
+      });
+      toast("Admin created.");
+      await renderApp();
+    } catch (e) {
+      toast(e.message || "Failed to create admin", "error");
+    }
+  };
+
+  document.querySelectorAll(".admin-reset-password-btn").forEach((btn) => btn.onclick = async () => {
+    const email = btn.dataset.email;
+    if (!email) return;
+    const next = prompt(`Set temporary password for ${email}`) || "";
+    if (!next) return;
+    try {
+      await api("/api/admin/users/reset-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, new_password: next }),
+      });
+      toast(`Temporary password reset for ${email}.`);
+      await renderApp();
+    } catch (e) {
+      toast(e.message || "Failed to reset password", "error");
+    }
+  });
 }
 
 

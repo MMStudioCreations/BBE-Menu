@@ -9,9 +9,10 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     {
       ok: true,
       admin: {
+        id: admin.id,
         email: admin.email,
         role: admin.role,
-        mustChangePassword: Number(admin.must_change_password) === 1,
+        mustChangePassword: Number(admin.force_password_change) === 1,
       },
     },
     200

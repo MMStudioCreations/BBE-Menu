@@ -1,4 +1,4 @@
-import { hashPassword, json, uuid } from "../auth/_utils";
+import { hashPassword, json } from "../auth/_utils";
 import { ensureAdminAuthSchema, requirePasswordReady, requireSuperAdmin } from "./_auth";
 
 export const onRequestGet: PagesFunction = async ({ request, env }) => {
@@ -13,7 +13,12 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
 
   const { results } = await db
     .prepare(
-      "SELECT id, email, role, COALESCE(is_active,1) AS is_active, created_at, COALESCE(must_change_password,0) AS must_change_password, password_updated_at FROM admins ORDER BY created_at DESC"
+      `SELECT id, email, role,
+              COALESCE(is_active,1) AS is_active,
+              COALESCE(force_password_change,0) AS force_password_change,
+              created_at, updated_at
+       FROM admin_users
+       ORDER BY created_at DESC`
     )
     .all<any>();
 
@@ -28,40 +33,54 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
   if (passwordGate) return passwordGate;
 
   const body = await request.json<any>().catch(() => null);
-  const email = String(body?.email || "").trim().toLowerCase();
-  const tempPassword = String(body?.tempPassword || "");
-  const role = String(body?.role || "admin").toLowerCase() === "superadmin" ? "superadmin" : "admin";
+  const normalizedEmail = String(body?.email || "").trim().toLowerCase();
+  const role = String(body?.role || "").trim().toLowerCase();
+  const tempPassword = String(body?.temp_password ?? body?.tempPassword ?? "");
 
-  if (!email || !tempPassword || tempPassword.length < 8) {
-    return json({ ok: false, error: "invalid_payload" }, 400);
+  if (!normalizedEmail) {
+    return json({ ok: false, error: "invalid_email" }, 400);
+  }
+  if (!["admin", "superadmin"].includes(role)) {
+    return json({ ok: false, error: "invalid_role" }, 400);
+  }
+  if (!tempPassword || tempPassword.length < 8) {
+    return json({ ok: false, error: "invalid_temp_password" }, 400);
   }
 
   const db = env.DB as D1Database;
   await ensureAdminAuthSchema(db);
 
-  const existing = await db.prepare("SELECT id FROM admins WHERE lower(email)=lower(?)").bind(email).first<any>();
-  if (existing) return json({ ok: false, error: "email_in_use" }, 409);
+  const insertedId = crypto.randomUUID();
 
-  const id = uuid();
-  await db
-    .prepare(
-      "INSERT INTO admins (id, email, password_hash, role, is_active, must_change_password, created_at) VALUES (?, ?, ?, ?, 1, 1, datetime('now'))"
-    )
-    .bind(id, email, await hashPassword(tempPassword), role)
-    .run();
+  try {
+    await db
+      .prepare(
+        `INSERT INTO admin_users
+         (id, email, password_hash, role, is_active, force_password_change, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 1, 1, datetime('now'), datetime('now'))`
+      )
+      .bind(insertedId, normalizedEmail, await hashPassword(tempPassword), role)
+      .run();
+  } catch (err: any) {
+    const message = String(err?.message || err || "");
+    if (/unique|constraint/i.test(message) && /email/i.test(message)) {
+      return json({ ok: false, error: "email_exists" }, 409);
+    }
+    return json({ ok: false, error: "create_admin_failed", detail: message }, 500);
+  }
 
-  const inserted = await db
-    .prepare("SELECT id, email, role, COALESCE(must_change_password,0) AS must_change_password FROM admins WHERE id = ?")
-    .bind(id)
-    .first<any>();
-
-  return json({
+  const debug = new URL(request.url).searchParams.get("debug") === "1";
+  const payload: any = {
     ok: true,
-    admin: {
-      id: inserted?.id ?? id,
-      email: inserted?.email ?? email,
-      role: inserted?.role ?? role,
-      mustChangePassword: true,
-    },
-  });
+    created: { id: insertedId, email: normalizedEmail, role },
+  };
+
+  if (debug) {
+    const countRow = await db.prepare("SELECT COUNT(*) AS count FROM admin_users").first<any>();
+    payload.admin_users_count_after = Number(countRow?.count || 0);
+    payload.normalized_email = normalizedEmail;
+    payload.inserted_id = insertedId;
+  }
+
+  return json(payload);
 };
