@@ -66,27 +66,56 @@ export async function ensureAdminAuthSchema(db: D1Database) {
     .run();
 }
 
-async function getSessionAdminFromSessions(db: D1Database, sessionId: string): Promise<any | null> {
-  const sessionsInfo = await db.prepare("PRAGMA table_info(sessions)").all<any>();
-  const sessionColumns = new Set((sessionsInfo.results || []).map((r: any) => String(r?.name || "").toLowerCase()));
+async function getSessionAdminFromSessions(
+  db: D1Database,
+  sessionId: string,
+  cookieName: string
+): Promise<any | null> {
+  try {
+    const sessionsInfo = await db.prepare("PRAGMA table_info(sessions)").all<any>();
+    const sessionColumns = new Set((sessionsInfo.results || []).map((r: any) => String(r?.name || "").toLowerCase()));
 
-  // If the table is missing or doesn't have an admin session schema, skip this path.
-  if (!sessionColumns.size) return null;
-  if (!sessionColumns.has("admin_user_id")) return null;
-  if (!sessionColumns.has("session_type")) return null;
-  if (!sessionColumns.has("expires_at")) return null;
+    if (!sessionColumns.size) return null;
 
-  return db
-    .prepare(
-      `SELECT a.id, a.email, a.role, COALESCE(a.is_active,1) AS is_active,
-              COALESCE(a.force_password_change,0) AS force_password_change
-       FROM sessions s
-       JOIN admin_users a ON a.id = s.admin_user_id
-       WHERE s.id = ? AND COALESCE(s.session_type, 'user') = 'admin' AND s.expires_at > datetime('now')
-       LIMIT 1`
-    )
-    .bind(sessionId)
-    .first<any>();
+    const joinColumn = sessionColumns.has("admin_user_id")
+      ? "admin_user_id"
+      : sessionColumns.has("user_id")
+      ? "user_id"
+      : null;
+    if (!joinColumn) return null;
+
+    const typeColumn = sessionColumns.has("session_type")
+      ? "session_type"
+      : sessionColumns.has("type")
+      ? "type"
+      : null;
+
+    const hasExpiresAt = sessionColumns.has("expires_at");
+
+    const adminCookieNames = new Set(["bb_admin_session", "admin_session", "bbe_admin_session"]);
+    if (!typeColumn && !adminCookieNames.has(cookieName)) {
+      return null;
+    }
+
+    const whereClauses = ["s.id = ?", "COALESCE(a.is_active,1) = 1"];
+    if (typeColumn) {
+      whereClauses.push(`lower(COALESCE(s.${typeColumn}, '')) = 'admin'`);
+    }
+    if (hasExpiresAt) {
+      whereClauses.push("s.expires_at > datetime('now')");
+    }
+
+    const sql = `SELECT a.id, a.email, a.role, COALESCE(a.is_active,1) AS is_active,
+                        COALESCE(a.force_password_change,0) AS force_password_change
+                 FROM sessions s
+                 JOIN admin_users a ON a.id = s.${joinColumn}
+                 WHERE ${whereClauses.join(" AND ")}
+                 LIMIT 1`;
+
+    return await db.prepare(sql).bind(sessionId).first<any>();
+  } catch {
+    return null;
+  }
 }
 
 async function getSessionAdminFromLegacySessions(db: D1Database, sessionId: string): Promise<any | null> {
@@ -112,16 +141,22 @@ export async function getAdminFromRequest(request: Request, env: any): Promise<A
     return null;
   }
 
-  const sessionId =
-    getCookie(request, "bb_admin_session") ||
-    getCookie(request, "admin_session") ||
-    getCookie(request, "bbe_admin_session") ||
-    getCookie(request, "bb_session");
-  if (!sessionId) return null;
+  const adminCookieNames = ["bb_admin_session", "admin_session", "bbe_admin_session"] as const;
+  let sessionId: string | null = null;
+  let sessionCookieName: (typeof adminCookieNames)[number] | null = null;
+  for (const cookieName of adminCookieNames) {
+    const value = getCookie(request, cookieName);
+    if (value) {
+      sessionId = value;
+      sessionCookieName = cookieName;
+      break;
+    }
+  }
+  if (!sessionId || !sessionCookieName) return null;
 
   let admin: any | null = null;
   try {
-    admin = await getSessionAdminFromSessions(db, sessionId);
+    admin = await getSessionAdminFromSessions(db, sessionId, sessionCookieName);
   } catch {
     admin = null;
   }
