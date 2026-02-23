@@ -1,4 +1,5 @@
 import { verifyPassword } from "../auth/_utils";
+import { getAdminPasswordChangeColumn } from "./_auth";
 
 type LoginErrorCode =
   | "db_missing"
@@ -70,13 +71,14 @@ export const onRequestPost: PagesFunction = async ({ request, env, params }) => 
     }
 
     step = "query_admins";
+    const passwordChangeColumn = await getAdminPasswordChangeColumn(db);
 
     const admin = await db
       .prepare(
         `SELECT id, email, password_hash,
                 COALESCE(is_active,1) AS is_active,
                 COALESCE(role,'admin') AS role,
-                COALESCE(must_change_password,0) AS must_change_password
+                COALESCE(${passwordChangeColumn},0) AS must_change_password
          FROM admins
          WHERE lower(email)=lower(?)
          LIMIT 1`

@@ -8,6 +8,13 @@ export type AdminAuth = {
   must_change_password: number;
 };
 
+export async function getAdminPasswordChangeColumn(db: D1Database): Promise<"must_change_password" | "force_password_change"> {
+  const info = await db.prepare("PRAGMA table_info(admins)").all<any>();
+  const columns = new Set((info.results || []).map((row: any) => String(row?.name || "").toLowerCase()));
+  if (columns.has("must_change_password")) return "must_change_password";
+  return "force_password_change";
+}
+
 export async function ensureAdminAuthSchema(db: D1Database) {
   await db
     .prepare(
@@ -53,13 +60,14 @@ export async function getAdminFromRequest(request: Request, env: any): Promise<A
   if (!session) return null;
   if (new Date(session.expires_at).getTime() <= Date.now()) return null;
 
+  const passwordChangeColumn = await getAdminPasswordChangeColumn(db);
 
   const admin = await db
     .prepare(
       `SELECT a.id, a.email,
               COALESCE(a.role,'admin') AS role,
               COALESCE(a.is_active,1) AS is_active,
-              COALESCE(a.must_change_password,0) AS must_change_password
+              COALESCE(a.${passwordChangeColumn},0) AS must_change_password
        FROM admins a
        WHERE a.id = ?
        LIMIT 1`
