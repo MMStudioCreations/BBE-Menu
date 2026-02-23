@@ -1,5 +1,5 @@
 import { getCookie } from "../auth/_utils";
-import { ensureAdminAuthSchema } from "./_auth";
+import { ensureAdminAuthSchema, getAdminPasswordChangeColumn } from "./_auth";
 
 const CLEAR_COOKIE = "bb_admin_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0";
 
@@ -28,6 +28,8 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     return jsonResponse({ ok: false, error: "unauthorized" }, 401, { "set-cookie": CLEAR_COOKIE });
   }
 
+  const passwordChangeColumn = await getAdminPasswordChangeColumn(db);
+
   const session = await db
     .prepare("SELECT id, admin_id, expires_at FROM admin_sessions WHERE id=? LIMIT 1")
     .bind(sessionId)
@@ -41,13 +43,13 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     .prepare(
       `SELECT a.id, a.email, COALESCE(a.role,'admin') AS role,
               COALESCE(a.is_active,1) AS is_active,
-              COALESCE(a.force_password_change,0) AS force_password_change
+              COALESCE(a.${passwordChangeColumn},0) AS must_change_password
        FROM admins a
        WHERE a.id = ?
        LIMIT 1`
     )
     .bind(session.admin_id)
-    .first<{ id: string; email: string; role: string; is_active: number; force_password_change: number }>();
+    .first<{ id: string; email: string; role: string; is_active: number; must_change_password: number }>();
 
   if (!admin) {
     return jsonResponse({ ok: false, error: "unauthorized" }, 401, { "set-cookie": CLEAR_COOKIE });
@@ -65,7 +67,7 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
         email: admin.email,
         role: admin.role,
       },
-      must_change_password: Number(admin.force_password_change) === 1,
+      must_change_password: Number(admin.must_change_password) === 1,
     },
     200
   );

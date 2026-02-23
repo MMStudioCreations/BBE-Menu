@@ -1,5 +1,5 @@
 import { hashPassword, json } from "../auth/_utils";
-import { ensureAdminAuthSchema, requirePasswordReady, requireSuperAdmin } from "./_auth";
+import { ensureAdminAuthSchema, getAdminPasswordChangeColumn, requirePasswordReady, requireSuperAdmin } from "./_auth";
 
 export const onRequestGet: PagesFunction = async ({ request, env }) => {
   const auth = await requireSuperAdmin(request, env);
@@ -13,6 +13,7 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
 
   const adminUsersInfo = await db.prepare("PRAGMA table_info(admins)").all<any>();
   const adminUserColumns = new Set((adminUsersInfo.results || []).map((r: any) => String(r?.name || "").toLowerCase()));
+  const passwordChangeColumn = await getAdminPasswordChangeColumn(db);
   const createdAtExpr = adminUserColumns.has("created_at") ? "created_at" : "'' AS created_at";
   const updatedAtExpr = adminUserColumns.has("updated_at") ? "updated_at" : "'' AS updated_at";
 
@@ -20,7 +21,7 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
     .prepare(
       `SELECT id, email, role,
               COALESCE(is_active,1) AS is_active,
-              COALESCE(force_password_change,0) AS force_password_change,
+              COALESCE(${passwordChangeColumn},0) AS must_change_password,
               ${createdAtExpr}, ${updatedAtExpr}
        FROM admins
        ORDER BY ${adminUserColumns.has("created_at") ? "created_at DESC" : "email ASC"}`
@@ -61,7 +62,7 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
     await db
       .prepare(
         `INSERT INTO admins
-         (id, email, password_hash, role, is_active, force_password_change, created_at, updated_at)
+         (id, email, password_hash, role, is_active, must_change_password, created_at, updated_at)
          VALUES (?, ?, ?, ?, 1, 1, datetime('now'), datetime('now'))`
       )
       .bind(insertedId, normalizedEmail, await hashPassword(tempPassword), role)
@@ -82,7 +83,7 @@ export const onRequestPost: PagesFunction = async ({ request, env }) => {
 
   if (debug) {
     const countRow = await db.prepare("SELECT COUNT(*) AS count FROM admins").first<any>();
-    payload.admin_users_count_after = Number(countRow?.count || 0);
+    payload.admins_count_after = Number(countRow?.count || 0);
     payload.normalized_email = normalizedEmail;
     payload.inserted_id = insertedId;
   }
