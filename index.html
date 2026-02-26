@@ -1013,6 +1013,43 @@
       return "$" + (Number(cents) / 100).toFixed(2);
     }
 
+    function flowerPriceRangeLabel(item){
+      const asNumber = (v)=>{
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      const pricePool = [
+        asNumber(item.prices?.g3_5),
+        asNumber(item.prices?.g7),
+        asNumber(item.prices?.g14),
+        asNumber(item.prices?.g28),
+        asNumber(item.prices?.eighth),
+        asNumber(item.prices?.quarter),
+        asNumber(item.prices?.half),
+        asNumber(item.prices?.ounce),
+        asNumber(item.price_8th),
+        asNumber(item.price_q),
+        asNumber(item.price_half),
+        asNumber(item.price_oz)
+      ];
+
+      if(Array.isArray(item.variants)){
+        item.variants.forEach((variant)=>{
+          const cents = Number(variant?.price_cents);
+          if(Number.isFinite(cents)) pricePool.push(cents / 100);
+        });
+      }
+
+      const vals = pricePool.filter((v)=>typeof v === 'number' && Number.isFinite(v));
+      if(!vals.length) return 'From: ' + moneyFromCents(item.from_price_cents);
+
+      const min = Math.min(...vals);
+      const max = Math.max(...vals);
+      if(min === max) return `From: $${min.toFixed(2)}`;
+      return `$${min.toFixed(2)} – $${max.toFixed(2)}`;
+    }
+
     const carouselEl = document.getElementById("carousel");
     const dotsEl = document.getElementById("dots");
     const prevBtn = document.getElementById("prevBtn");
@@ -1050,7 +1087,7 @@
             <div class="feature-title">${String(item.name||"").toUpperCase()}</div>
             <div class="feature-meta">
               <span class="meta-pill">Flower</span>
-              <span class="meta-pill">From: ${moneyFromCents(item.from_price_cents)}</span>
+              <span class="meta-pill">${flowerPriceRangeLabel(item)}</span>
               <span class="meta-pill">Tap to view</span>
             </div>
           </div>
