@@ -105,7 +105,38 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
 
     const { results } = await db.prepare(sql).bind(...binds, limit).all();
 
-    const products = (results || []).map((row: any) => ({
+    if (!results || !results.length) return json([]);
+
+    // Fetch all active variants for the returned products in a single query
+    const productIds = (results as any[]).map((r: any) => r.id).filter(Boolean);
+    let variantsByProductId = new Map<string, Array<{ id: string; label: string; price_cents: number; sort_order: number }>>();
+    if (productIds.length) {
+      const placeholders = productIds.map(() => "?").join(", ");
+      try {
+        const variantRows = await db
+          .prepare(
+            `SELECT id, product_id, label, price_cents, sort_order
+             FROM product_variants
+             WHERE product_id IN (${placeholders}) AND is_active = 1
+             ORDER BY sort_order ASC, price_cents ASC`
+          )
+          .bind(...productIds)
+          .all<any>();
+        for (const v of variantRows.results || []) {
+          if (!variantsByProductId.has(v.product_id)) variantsByProductId.set(v.product_id, []);
+          variantsByProductId.get(v.product_id)!.push({
+            id: v.id,
+            label: v.label,
+            price_cents: Number(v.price_cents),
+            sort_order: Number(v.sort_order),
+          });
+        }
+      } catch (err) {
+        console.warn("[api/products] variant batch fetch failed, continuing without variants", err);
+      }
+    }
+
+    const products = (results as any[]).map((row: any) => ({
       id: row.id,
       slug: row.slug,
       name: row.name,
@@ -118,6 +149,7 @@ export const onRequestGet: PagesFunction = async ({ request, env }) => {
       effects: parseEffects(row.effects_json),
       from_price_cents: row.from_price_cents === null ? null : Number(row.from_price_cents),
       is_featured: Number(row.is_featured || 0),
+      variants: variantsByProductId.get(row.id) || [],
     }));
 
     return json(products);

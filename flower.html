@@ -959,26 +959,45 @@
           main.appendChild(name);
           const prices = document.createElement('div');
           prices.className = 'prices';
-          const SIZE_KEYS = ['g3_5','g7','g14','g28'];
-          const SIZE_LABELS = { g3_5:'1/8', g7:'1/4', g14:'1/2', g28:'OZ' };
-          const SIZE_ALT_LABELS = { eighth:'1/8', quarter:'1/4', half:'1/2', ounce:'OZ' };
+          // Normalize variant label to a short display label
+          function variantDisplayLabel(label) {
+            const l = String(label || '').toLowerCase().replace(/\s+/g,'');
+            if(l==='3.5g'||l==='eighth'||l==='1/8') return '1/8';
+            if(l==='7g'||l==='quarter'||l==='1/4') return '1/4';
+            if(l==='14g'||l==='half'||l==='1/2') return '1/2';
+            if(l==='28g'||l==='ounce'||l==='oz'||l==='1oz') return 'OZ';
+            return label; // keep original if unknown
+          }
           let hadPill = false;
-          SIZE_KEYS.forEach(function(k){
-            const avail = item.availability ? item.availability[k] : true;
-            if(avail === false) return;
-            let val = null;
-            if(item.prices && item.prices[k] != null) val = Number(item.prices[k]);
-            else if(k==='g3_5' && item.price_8th != null) val = Number(item.price_8th);
-            else if(k==='g7'   && item.price_q   != null) val = Number(item.price_q);
-            else if(k==='g14'  && item.price_half!= null) val = Number(item.price_half);
-            else if(k==='g28'  && item.price_oz  != null) val = Number(item.price_oz);
-            if(val == null || !Number.isFinite(val)) return;
-            const p = document.createElement('span');
-            p.className = 'price';
-            p.textContent = SIZE_LABELS[k] + ' $' + val.toFixed(0);
-            prices.appendChild(p);
-            hadPill = true;
-          });
+          // Prefer variants array from D1 API (includes label + price_cents)
+          if(Array.isArray(item.variants) && item.variants.length) {
+            item.variants.forEach(function(v){
+              const cents = Number(v.price_cents);
+              if(!Number.isFinite(cents)) return;
+              const p = document.createElement('span');
+              p.className = 'price';
+              p.textContent = variantDisplayLabel(v.label) + ' $' + Math.round(cents/100);
+              prices.appendChild(p);
+              hadPill = true;
+            });
+          }
+          // Fallback: use prices object (static/products.json path)
+          if(!hadPill) {
+            const SIZE_KEYS = ['g3_5','g7','g14','g28'];
+            const SIZE_LABELS = { g3_5:'1/8', g7:'1/4', g14:'1/2', g28:'OZ' };
+            SIZE_KEYS.forEach(function(k){
+              const avail = item.availability ? item.availability[k] : true;
+              if(avail === false) return;
+              let val = null;
+              if(item.prices && item.prices[k] != null) val = Number(item.prices[k]);
+              if(val == null || !Number.isFinite(val)) return;
+              const p = document.createElement('span');
+              p.className = 'price';
+              p.textContent = SIZE_LABELS[k] + ' $' + val.toFixed(0);
+              prices.appendChild(p);
+              hadPill = true;
+            });
+          }
           if(!hadPill){
             const p = document.createElement('span');
             p.className = 'price na';

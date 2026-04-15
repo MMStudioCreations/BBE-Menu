@@ -354,6 +354,30 @@
       position:relative;
       padding-bottom:4px;
     }
+
+    /* Price pills row on product page */
+    .price-pills{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin:8px 0 12px;
+    }
+    .price-pill{
+      background:#f4f4f4;
+      border:1px solid #eee;
+      border-radius:999px;
+      padding:5px 10px;
+      font-size:13px;
+      font-weight:700;
+      white-space:nowrap;
+      transition:border-color .18s ease;
+    }
+    .price-pill.active{
+      background:#111;
+      color:#fff;
+      border-color:#111;
+    }
+    .info:hover .price-pill{border-color:var(--gold-soft)}
     .price:after{
       content:"";
       position:absolute;
@@ -672,6 +696,8 @@
           <select id="sizeSelect" class="size-select"></select>
         </div>
 
+        <div class="price-pills" id="pricePills"></div>
+
         <div class="price" id="price">$0</div>
 
         <div class="buy-row">
@@ -854,8 +880,51 @@
 
     const casshInline = document.getElementById("casshInline");
     const casshInlineImg = document.getElementById("casshInlineImg");
+    const pricePillsEl = document.getElementById("pricePills");
 
     let currentItem = null;
+
+    // Normalize a variant label (e.g. "3.5g") to a short display label (e.g. "1/8")
+    function variantShortLabel(label){
+      const l = String(label||'').toLowerCase().replace(/\s+/g,'');
+      if(l==='3.5g'||l==='eighth'||l==='1/8') return '1/8';
+      if(l==='7g'||l==='quarter'||l==='1/4') return '1/4';
+      if(l==='14g'||l==='half'||l==='1/2') return '1/2';
+      if(l==='28g'||l==='ounce'||l==='oz'||l==='1oz') return 'OZ';
+      return label;
+    }
+
+    function renderPricePills(item){
+      if(!pricePillsEl) return;
+      pricePillsEl.innerHTML = '';
+      let had = false;
+      if(item.__d1 && Array.isArray(item.variants) && item.variants.length){
+        item.variants.forEach(function(v){
+          const cents = Number(v.price_cents);
+          if(!Number.isFinite(cents)) return;
+          const pill = document.createElement('span');
+          pill.className = 'price-pill';
+          pill.textContent = variantShortLabel(v.label) + ' $' + Math.round(cents/100);
+          pricePillsEl.appendChild(pill);
+          had = true;
+        });
+      } else if(item.category === 'Flower' && item.prices){
+        const SIZE_KEYS = ['g3_5','g7','g14','g28'];
+        const SIZE_LABELS = {g3_5:'1/8',g7:'1/4',g14:'1/2',g28:'OZ'};
+        SIZE_KEYS.forEach(function(k){
+          const avail = item.availability ? item.availability[k] : true;
+          if(avail === false) return;
+          const val = Number(item.prices[k]);
+          if(!Number.isFinite(val)) return;
+          const pill = document.createElement('span');
+          pill.className = 'price-pill';
+          pill.textContent = SIZE_LABELS[k] + ' $' + val.toFixed(0);
+          pricePillsEl.appendChild(pill);
+          had = true;
+        });
+      }
+      pricePillsEl.style.display = had ? 'flex' : 'none';
+    }
 
     function buildSizeOptions(item){
       sizeSelect.innerHTML = "";
@@ -929,6 +998,15 @@
       if(!currentItem) return;
       const unit = getUnitPrice(currentItem, sizeSelect.value);
       priceEl.textContent = money(unit);
+      // Highlight the active pill
+      if(pricePillsEl){
+        const pills = pricePillsEl.querySelectorAll('.price-pill');
+        pills.forEach(function(pill, i){
+          const v = currentItem.__d1 ? (currentItem.variants||[])[i] : null;
+          const active = v ? v.id === sizeSelect.value : false;
+          pill.classList.toggle('active', active);
+        });
+      }
     }
 
     // ✅ Effects: prefer item.effects, else fall back to EFFECTS_MAP
@@ -1017,6 +1095,7 @@
       aboutBy.textContent = `BY: ${displayBrand.toUpperCase()}`;
       aboutText.textContent = item.description || "Description coming soon.";
       buildSizeOptions(item);
+      renderPricePills(item);
       renderPrice();
       sizeSelect.addEventListener("change", renderPrice);
       renderEffects(item);
