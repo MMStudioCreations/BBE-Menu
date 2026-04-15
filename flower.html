@@ -959,10 +959,32 @@
           main.appendChild(name);
           const prices = document.createElement('div');
           prices.className = 'prices';
-          const price = document.createElement('span');
-          price.className = 'price';
-          price.textContent = flowerPriceRangeLabel(item);
-          prices.appendChild(price);
+          const SIZE_KEYS = ['g3_5','g7','g14','g28'];
+          const SIZE_LABELS = { g3_5:'1/8', g7:'1/4', g14:'1/2', g28:'OZ' };
+          const SIZE_ALT_LABELS = { eighth:'1/8', quarter:'1/4', half:'1/2', ounce:'OZ' };
+          let hadPill = false;
+          SIZE_KEYS.forEach(function(k){
+            const avail = item.availability ? item.availability[k] : true;
+            if(avail === false) return;
+            let val = null;
+            if(item.prices && item.prices[k] != null) val = Number(item.prices[k]);
+            else if(k==='g3_5' && item.price_8th != null) val = Number(item.price_8th);
+            else if(k==='g7'   && item.price_q   != null) val = Number(item.price_q);
+            else if(k==='g14'  && item.price_half!= null) val = Number(item.price_half);
+            else if(k==='g28'  && item.price_oz  != null) val = Number(item.price_oz);
+            if(val == null || !Number.isFinite(val)) return;
+            const p = document.createElement('span');
+            p.className = 'price';
+            p.textContent = SIZE_LABELS[k] + ' $' + val.toFixed(0);
+            prices.appendChild(p);
+            hadPill = true;
+          });
+          if(!hadPill){
+            const p = document.createElement('span');
+            p.className = 'price na';
+            p.textContent = 'N/A';
+            prices.appendChild(p);
+          }
           main.appendChild(prices);
 
           row.appendChild(main);
